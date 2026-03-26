@@ -1,3 +1,9 @@
+#[derive(Debug, Clone, Copy)]
+pub enum RunnerModeConfig {
+    Fake,
+    Browser,
+}
+
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub listen_addr: String,
@@ -6,6 +12,7 @@ pub struct AppConfig {
     pub artifacts_dir: String,
     pub max_concurrent_tasks: usize,
     pub default_timeout_seconds: i64,
+    pub runner_mode: RunnerModeConfig,
 }
 
 impl Default for AppConfig {
@@ -21,6 +28,7 @@ impl Default for AppConfig {
             artifacts_dir,
             max_concurrent_tasks: 4,
             default_timeout_seconds: 60,
+            runner_mode: RunnerModeConfig::Fake,
         }
     }
 }

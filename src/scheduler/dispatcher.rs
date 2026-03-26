@@ -4,14 +4,19 @@ use tokio::sync::{mpsc, Semaphore};
 use tracing::error;
 
 use crate::{
-    runner::fake_runner::{FakeRunner, TaskRunner},
+    config::RunnerModeConfig,
+    runner::{
+        browser_runner::BrowserRunner,
+        fake_runner::{FakeRunner, TaskRunner},
+        lightpanda::cli::LightpandaCliAdapter,
+    },
     scheduler::queue::QueuedTask,
     state::AppState,
 };
 
 pub async fn start_dispatcher(state: Arc<AppState>, mut rx: mpsc::Receiver<QueuedTask>) {
     let semaphore = Arc::new(Semaphore::new(state.config.max_concurrent_tasks));
-    let runner = Arc::new(FakeRunner::new());
+    let runner: Arc<dyn TaskRunner> = build_runner(state.config.runner_mode);
 
     while let Some(job) = rx.recv().await {
         let permit = match semaphore.clone().acquire_owned().await {
@@ -34,9 +39,16 @@ pub async fn start_dispatcher(state: Arc<AppState>, mut rx: mpsc::Receiver<Queue
     }
 }
 
+fn build_runner(mode: RunnerModeConfig) -> Arc<dyn TaskRunner> {
+    match mode {
+        RunnerModeConfig::Fake => Arc::new(FakeRunner::new()),
+        RunnerModeConfig::Browser => Arc::new(BrowserRunner::new(LightpandaCliAdapter::default())),
+    }
+}
+
 async fn process_one_task(
     state: Arc<AppState>,
-    runner: Arc<impl TaskRunner>,
+    runner: Arc<dyn TaskRunner>,
     job: QueuedTask,
 ) -> Result<(), crate::error::AppError> {
     state.db.mark_running(&job.task_id)?;
