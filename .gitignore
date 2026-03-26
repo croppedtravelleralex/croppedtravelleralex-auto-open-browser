@@ -1,0 +1,24 @@
+# Rust
+/target/
+Cargo.lock
+
+# Runtime / process artifacts
+*.pid
+*.nohup
+*.out
+*.err
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local env
+.env
+.env.*
