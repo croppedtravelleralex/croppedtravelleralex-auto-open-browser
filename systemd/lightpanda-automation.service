@@ -1,0 +1,15 @@
+[Unit]
+Description=Lightpanda Automation Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/lightpanda-automation
+ExecStart=/opt/lightpanda-automation/lightpanda-automation
+Restart=always
+RestartSec=2
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target
