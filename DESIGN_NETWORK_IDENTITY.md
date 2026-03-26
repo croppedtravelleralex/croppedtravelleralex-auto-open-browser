@@ -1,6 +1,6 @@
 # DESIGN_NETWORK_IDENTITY.md
 
-`lightpanda-automation` 的网络与身份层设计文档。
+`AutoOpenBroswer` 的网络与身份层设计文档。
 
 聚焦三部分：
 

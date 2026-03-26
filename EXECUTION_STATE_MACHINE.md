@@ -1,6 +1,6 @@
 # EXECUTION_STATE_MACHINE.md
 
-`lightpanda-automation` 自动执行状态机定义。
+`AutoOpenBroswer` 自动执行状态机定义。
 
 ## 目标
 

@@ -1,5 +1,5 @@
 [package]
-name = "lightpanda-automation"
+name = "AutoOpenBroswer"
 version = "0.1.0"
 edition = "2021"
 

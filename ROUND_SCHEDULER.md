@@ -1,6 +1,6 @@
 # ROUND_SCHEDULER.md
 
-`lightpanda-automation` 的轮次调度器设计。
+`AutoOpenBroswer` 的轮次调度器设计。
 
 ## 目标
 

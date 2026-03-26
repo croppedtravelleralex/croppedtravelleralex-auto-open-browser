@@ -1,3 +1,3 @@
 fn main() {
-    println!("lightpanda-automation bootstrap");
+    println!("AutoOpenBroswer bootstrap");
 }

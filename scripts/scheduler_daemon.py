@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-BASE = Path('/root/.openclaw/workspace/lightpanda-automation')
+BASE = Path('/root/.openclaw/workspace/AutoOpenBroswer')
 RUN_STATE = BASE / 'RUN_STATE.json'
 LOG = BASE / 'scheduler-daemon.log'
 TZ = timezone(timedelta(hours=8))
