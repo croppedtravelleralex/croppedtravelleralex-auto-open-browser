@@ -17,7 +17,11 @@ async fn main() -> Result<()> {
     let database_url = "sqlite://data/auto_open_browser.db";
     let db = init_db(database_url).await?;
     let queue = MemoryTaskQueue::new();
-    let state = AppState { db, queue };
+    let api_key = std::env::var("AUTO_OPEN_BROWSER_API_KEY")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let state = AppState { db, queue, api_key };
 
     spawn_fake_runner_loop(state.clone()).await;
 

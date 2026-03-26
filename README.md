@@ -13,10 +13,19 @@
 - **重试 / 取消（queued）**
 - **run history / logs 记录与查询**
 - **health / status 摘要输出**
+- **API Key 鉴权（可选）**
 
 更完整进展请看：
 - `PROGRESS.md` — **已实现 / 正在做 / 未来将实现**
 - `STATUS.md` — **当前状态摘要、风险、下一步**
+
+## API 鉴权
+
+设置环境变量 `AUTO_OPEN_BROWSER_API_KEY` 后，所有接口需要携带以下任一方式：
+- `x-api-key: <key>`
+- `Authorization: Bearer <key>`
+
+未设置该环境变量时，接口将不做鉴权限制。
 
 ## 项目目标
 

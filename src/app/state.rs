@@ -4,4 +4,5 @@ use crate::{db::init::DbPool, queue::memory::MemoryTaskQueue};
 pub struct AppState {
     pub db: DbPool,
     pub queue: MemoryTaskQueue,
+    pub api_key: Option<String>,
 }

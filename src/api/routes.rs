@@ -1,10 +1,10 @@
-use axum::{routing::{get, post}, Router};
+use axum::{middleware, routing::{get, post}, Router};
 
 use crate::app::state::AppState;
 
-use super::handlers::{
+use super::{auth::auth_middleware, handlers::{
     cancel_task, create_task, get_task, get_task_logs, get_task_runs, health, retry_task, status,
-};
+}};
 
 pub fn build_router(state: AppState) -> Router {
     Router::new()
@@ -16,5 +16,6 @@ pub fn build_router(state: AppState) -> Router {
         .route("/tasks/:id/logs", get(get_task_logs))
         .route("/tasks/:id/retry", post(retry_task))
         .route("/tasks/:id/cancel", post(cancel_task))
-        .with_state(state)
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(state, auth_middleware))
 }
