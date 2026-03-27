@@ -16,6 +16,12 @@ pub struct RunnerExecutionResult {
     pub error_message: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct RunnerCancelResult {
+    pub accepted: bool,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum RunnerOutcomeStatus {
     Succeeded,

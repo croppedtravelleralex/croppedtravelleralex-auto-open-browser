@@ -1,12 +1,16 @@
-use axum::{extract::{Path, State}, http::StatusCode, response::Json};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::Json,
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use crate::app::state::AppState;
 
 use super::dto::{
-    CancelTaskResponse, CreateTaskRequest, HealthResponse, LogResponse, RetryTaskResponse,
-    RunResponse, StatusResponse, TaskResponse, TaskStatusCounts,
+    CancelTaskResponse, CreateTaskRequest, HealthResponse, LogResponse, PaginationQuery,
+    RetryTaskResponse, RunResponse, StatusResponse, TaskResponse, TaskStatusCounts,
 };
 
 fn now_ts_string() -> String {
@@ -15,6 +19,13 @@ fn now_ts_string() -> String {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     secs.to_string()
+}
+
+fn sanitize_limit(limit: Option<i64>, default_value: i64, max_value: i64) -> i64 {
+    match limit {
+        Some(value) if value > 0 => value.min(max_value),
+        _ => default_value,
+    }
 }
 
 async fn load_counts(state: &AppState) -> Result<TaskStatusCounts, (StatusCode, String)> {
@@ -47,10 +58,20 @@ async fn load_counts(state: &AppState) -> Result<TaskStatusCounts, (StatusCode, 
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count cancelled tasks: {err}")))?;
 
-    Ok(TaskStatusCounts { total, queued, running, succeeded, failed, timeout, cancelled })
+    Ok(TaskStatusCounts {
+        total,
+        queued,
+        running,
+        succeeded,
+        failed,
+        timeout,
+        cancelled,
+    })
 }
 
-pub async fn health(State(state): State<AppState>) -> Result<Json<HealthResponse>, (StatusCode, String)> {
+pub async fn health(
+    State(state): State<AppState>,
+) -> Result<Json<HealthResponse>, (StatusCode, String)> {
     let counts = load_counts(&state).await?;
     Ok(Json(HealthResponse {
         status: "ok".to_string(),
@@ -60,16 +81,34 @@ pub async fn health(State(state): State<AppState>) -> Result<Json<HealthResponse
     }))
 }
 
-pub async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse>, (StatusCode, String)> {
+pub async fn status(
+    State(state): State<AppState>,
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<StatusResponse>, (StatusCode, String)> {
     let counts = load_counts(&state).await?;
+    let limit = sanitize_limit(query.limit, 5, 100);
     let rows = sqlx::query_as::<_, (String, String, String, i32)>(
-        r#"SELECT id, kind, status, priority FROM tasks ORDER BY created_at DESC LIMIT 5"#,
+        r#"SELECT id, kind, status, priority FROM tasks ORDER BY created_at DESC LIMIT ?"#,
     )
+    .bind(limit)
     .fetch_all(&state.db)
     .await
-    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to fetch latest tasks: {err}")))?;
+    .map_err(|err| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to fetch latest tasks: {err}"),
+        )
+    })?;
 
-    let latest_tasks = rows.into_iter().map(|(id, kind, status, priority)| TaskResponse { id, kind, status, priority }).collect();
+    let latest_tasks = rows
+        .into_iter()
+        .map(|(id, kind, status, priority)| TaskResponse {
+            id,
+            kind,
+            status,
+            priority,
+        })
+        .collect();
 
     Ok(Json(StatusResponse {
         service: "AutoOpenBrowser".to_string(),
@@ -89,7 +128,12 @@ pub async fn create_task(
 
     let task_id = format!("task-{}", Uuid::new_v4());
     let priority = payload.priority.unwrap_or(0);
-    let input_json = serde_json::json!({ "url": payload.url, "script": payload.script }).to_string();
+    let input_json = serde_json::json!({
+        "url": payload.url,
+        "script": payload.script,
+        "timeout_seconds": payload.timeout_seconds
+    })
+    .to_string();
     let created_at = now_ts_string();
     let queued_at = now_ts_string();
 
@@ -110,11 +154,24 @@ pub async fn create_task(
     .bind(&queued_at)
     .execute(&state.db)
     .await
-    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to insert task: {err}")))?;
+    .map_err(|err| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to insert task: {err}"),
+        )
+    })?;
 
     state.queue.push(task_id.clone());
 
-    Ok((StatusCode::CREATED, Json(TaskResponse { id: task_id, kind: payload.kind, status: "queued".to_string(), priority })))
+    Ok((
+        StatusCode::CREATED,
+        Json(TaskResponse {
+            id: task_id,
+            kind: payload.kind,
+            status: "queued".to_string(),
+            priority,
+        }),
+    ))
 }
 
 pub async fn get_task(
@@ -125,14 +182,26 @@ pub async fn get_task(
         return Err((StatusCode::BAD_REQUEST, "task id is required".to_string()));
     }
 
-    let row = sqlx::query_as::<_, (String, String, String, i32)>(r#"SELECT id, kind, status, priority FROM tasks WHERE id = ?"#)
-        .bind(&task_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to fetch task: {err}")))?;
+    let row = sqlx::query_as::<_, (String, String, String, i32)>(
+        r#"SELECT id, kind, status, priority FROM tasks WHERE id = ?"#,
+    )
+    .bind(&task_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|err| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to fetch task: {err}"),
+        )
+    })?;
 
     match row {
-        Some((id, kind, status, priority)) => Ok(Json(TaskResponse { id, kind, status, priority })),
+        Some((id, kind, status, priority)) => Ok(Json(TaskResponse {
+            id,
+            kind,
+            status,
+            priority,
+        })),
         None => Err((StatusCode::NOT_FOUND, format!("task not found: {task_id}"))),
     }
 }
@@ -140,35 +209,73 @@ pub async fn get_task(
 pub async fn get_task_runs(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
+    Query(query): Query<PaginationQuery>,
 ) -> Result<Json<Vec<RunResponse>>, (StatusCode, String)> {
+    let limit = sanitize_limit(query.limit, 20, 200);
     let rows = sqlx::query_as::<_, (String, String, String, i32, String, Option<String>, Option<String>, Option<String>)>(
-        r#"SELECT id, task_id, status, attempt, runner_kind, started_at, finished_at, error_message FROM runs WHERE task_id = ? ORDER BY attempt DESC"#,
+        r#"SELECT id, task_id, status, attempt, runner_kind, started_at, finished_at, error_message FROM runs WHERE task_id = ? ORDER BY attempt DESC LIMIT ?"#,
     )
     .bind(&task_id)
+    .bind(limit)
     .fetch_all(&state.db)
     .await
-    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to fetch runs: {err}")))?;
+    .map_err(|err| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to fetch runs: {err}"),
+        )
+    })?;
 
-    Ok(Json(rows.into_iter().map(|(id, task_id, status, attempt, runner_kind, started_at, finished_at, error_message)| RunResponse {
-        id, task_id, status, attempt, runner_kind, started_at, finished_at, error_message,
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(
+                |(id, task_id, status, attempt, runner_kind, started_at, finished_at, error_message)| RunResponse {
+                    id,
+                    task_id,
+                    status,
+                    attempt,
+                    runner_kind,
+                    started_at,
+                    finished_at,
+                    error_message,
+                },
+            )
+            .collect(),
+    ))
 }
 
 pub async fn get_task_logs(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
+    Query(query): Query<PaginationQuery>,
 ) -> Result<Json<Vec<LogResponse>>, (StatusCode, String)> {
+    let limit = sanitize_limit(query.limit, 50, 500);
     let rows = sqlx::query_as::<_, (String, String, Option<String>, String, String, String)>(
-        r#"SELECT id, task_id, run_id, level, message, created_at FROM logs WHERE task_id = ? ORDER BY created_at DESC"#,
+        r#"SELECT id, task_id, run_id, level, message, created_at FROM logs WHERE task_id = ? ORDER BY created_at DESC LIMIT ?"#,
     )
     .bind(&task_id)
+    .bind(limit)
     .fetch_all(&state.db)
     .await
-    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to fetch logs: {err}")))?;
+    .map_err(|err| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to fetch logs: {err}"),
+        )
+    })?;
 
-    Ok(Json(rows.into_iter().map(|(id, task_id, run_id, level, message, created_at)| LogResponse {
-        id, task_id, run_id, level, message, created_at,
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|(id, task_id, run_id, level, message, created_at)| LogResponse {
+                id,
+                task_id,
+                run_id,
+                level,
+                message,
+                created_at,
+            })
+            .collect(),
+    ))
 }
 
 pub async fn retry_task(
@@ -179,14 +286,22 @@ pub async fn retry_task(
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to read task status: {err}")))?;
+        .map_err(|err| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to read task status: {err}"),
+            )
+        })?;
 
     let Some(status) = current_status else {
         return Err((StatusCode::NOT_FOUND, format!("task not found: {task_id}")));
     };
 
     if status != "failed" && status != "timeout" {
-        return Err((StatusCode::BAD_REQUEST, format!("task status does not allow retry: {status}")));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("task status does not allow retry: {status}"),
+        ));
     }
 
     let queued_at = now_ts_string();
@@ -198,11 +313,20 @@ pub async fn retry_task(
     .bind(&task_id)
     .execute(&state.db)
     .await
-    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to retry task: {err}")))?;
+    .map_err(|err| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to retry task: {err}"),
+        )
+    })?;
 
     state.queue.push(task_id.clone());
 
-    Ok(Json(RetryTaskResponse { id: task_id, status: "queued".to_string(), message: "task re-queued for retry".to_string() }))
+    Ok(Json(RetryTaskResponse {
+        id: task_id,
+        status: "queued".to_string(),
+        message: "task re-queued for retry".to_string(),
+    }))
 }
 
 pub async fn cancel_task(
@@ -213,30 +337,75 @@ pub async fn cancel_task(
         .bind(&task_id)
         .fetch_optional(&state.db)
         .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to read task status: {err}")))?;
+        .map_err(|err| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to read task status: {err}"),
+            )
+        })?;
 
     let Some(status) = current_status else {
         return Err((StatusCode::NOT_FOUND, format!("task not found: {task_id}")));
     };
 
-    if status != "queued" {
-        return Err((StatusCode::BAD_REQUEST, format!("only queued tasks can be cancelled now, current status: {status}")));
+    if status == "queued" {
+        let removed = state.queue.remove(&task_id);
+        if !removed {
+            return Err((
+                StatusCode::CONFLICT,
+                format!("task not found in queue: {task_id}"),
+            ));
+        }
+
+        sqlx::query(r#"UPDATE tasks SET status = ?, finished_at = ? WHERE id = ?"#)
+            .bind("cancelled")
+            .bind(now_ts_string())
+            .bind(&task_id)
+            .execute(&state.db)
+            .await
+            .map_err(|err| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("failed to cancel task: {err}"),
+                )
+            })?;
+
+        return Ok(Json(CancelTaskResponse {
+            id: task_id,
+            status: "cancelled".to_string(),
+            message: "task cancelled while queued".to_string(),
+        }));
     }
 
-    let removed = state.queue.remove(&task_id);
-    if !removed {
-        return Err((StatusCode::CONFLICT, "task not found in memory queue; it may already be running".to_string()));
+    if status == "running" {
+        let cancel = state.runner.cancel_running(&task_id).await;
+        if !cancel.accepted {
+            return Err((StatusCode::CONFLICT, cancel.message));
+        }
+
+        sqlx::query(r#"UPDATE tasks SET status = ?, finished_at = ?, error_message = ? WHERE id = ?"#)
+            .bind("cancelled")
+            .bind(now_ts_string())
+            .bind("task cancelled while running")
+            .bind(&task_id)
+            .execute(&state.db)
+            .await
+            .map_err(|err| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("failed to mark running task as cancelled: {err}"),
+                )
+            })?;
+
+        return Ok(Json(CancelTaskResponse {
+            id: task_id,
+            status: "cancelled".to_string(),
+            message: cancel.message,
+        }));
     }
 
-    let finished_at = now_ts_string();
-    sqlx::query(r#"UPDATE tasks SET status = ?, finished_at = ?, error_message = ? WHERE id = ?"#)
-        .bind("cancelled")
-        .bind(&finished_at)
-        .bind("cancelled before execution")
-        .bind(&task_id)
-        .execute(&state.db)
-        .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to cancel task: {err}")))?;
-
-    Ok(Json(CancelTaskResponse { id: task_id, status: "cancelled".to_string(), message: "task removed from queue and cancelled".to_string() }))
+    Err((
+        StatusCode::BAD_REQUEST,
+        format!("task status does not allow cancel: {status}"),
+    ))
 }

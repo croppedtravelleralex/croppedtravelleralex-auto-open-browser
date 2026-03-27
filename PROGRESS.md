@@ -35,6 +35,20 @@
 - **2026.3.26-16:51:52** 实现了 **runner trait / adapter interface 第一版**，将 fake runner 纳入统一 `TaskRunner` 抽象，并将启动入口改为通过统一 runner loop 启动。
 - **2026.3.26-17:27:00** 实现了 **Lightpanda runner 占位适配层与 runner kind 切换入口**，新增 `LightpandaRunner` 占位实现，并支持通过 `AUTO_OPEN_BROWSER_RUNNER` 在 `fake / lightpanda` 间切换。
 - **2026.3.27-11:15:00** 完成了 **标准项目文档入口层补齐**，新增 `AI.md` / `PLAN.md` / `FEATURES.md`，并在 `README.md` 增加标准接手入口，统一项目接手路径。
+- **2026.3.27-11:26:00** 完成了 **runner 通用执行层第一轮抽离**，新增 `src/runner/engine.rs`，将任务消费、run/log 写入与状态回写从 `fake.rs` 抽离，为后续 `lightpanda` 接入清理职责边界。
+- **2026.3.27-11:29:00** 完成了 **RunnerTask 真实输入接线第一版**，通用执行层开始从 `tasks.input_json` 读取任务输入并传给 runner，同时为 `timeout_seconds` 增加透传位。
+- **2026.3.27-11:33:00** 完成了 **`LightpandaRunner` V1 接入边界定义**，新增 `LIGHTPANDA_V1_PLAN.md`，明确第一版先以最小真实页面访问为目标，不提前堆叠脚本、截图、代理、指纹等高级能力。
+- **2026.3.27-11:36:00** 完成了 **`LightpandaRunner` 参数校验与错误语义第一版**，开始校验 `url` 输入、区分 `invalid_input / not_implemented` 错误语义，为后续最小真实执行接入铺路。
+- **2026.3.27-11:47:00** 完成了 **`LightpandaRunner` 最小真实执行第一版**，新增 `LIGHTPANDA_BIN` 配置读取，并通过本地 `lightpanda fetch <url>` 执行真实页面访问，开始回收 `stdout / stderr / exit_code / timeout` 到结果链路。
+- **2026.3.27-11:53:00** 完成了 **`LightpandaRunner` 结果结构与错误语义收紧**，统一输出 `status / error_kind / exit_code / stdout_preview / stderr_preview` 字段，并为截断输出增加明确的 `...[truncated]` 标记。
+- **2026.3.27-12:05:00** 完成了 **查询控制与分页第一版**，为 `status / runs / logs` 接口增加 `limit` 参数与上限约束，避免结果集无限增长。
+- **2026.3.27-12:10:00** 完成了 **`running cancel` 设计预留**，新增 `RUNNING_CANCEL_PLAN.md`，明确取消正在执行任务不能只改数据库状态，而必须把真实 runner 和外部进程纳入取消链路。
+- **2026.3.27-12:15:00** 完成了 **runner cancel 抽象层第一版**，为 `TaskRunner` 增加 `cancel_running` 默认接口与 `RunnerCancelResult` 类型，为后续 `LightpandaRunner` 最小可用取消实现打底。
+- **2026.3.27-12:18:00** 完成了 **`LightpandaRunner` 取消句柄注册表第一版**，为运行中的任务登记子进程 pid，并让 `cancel_running(task_id)` 能识别当前是否存在可取消的外部进程。
+- **2026.3.27-12:22:00** 完成了 **`LightpandaRunner` 最小进程终止链路第一版**，`cancel_running(task_id)` 已可尝试对登记中的外部进程发送 `SIGTERM`，把 running cancel 从“识别可取消对象”推进到“尝试实际终止进程”。
+- **2026.3.27-12:26:00** 完成了 **AppState 持有当前 runner 句柄的结构调整**，为 API 层把 running cancel 请求真正转发到 runner cancel 链路打通前置条件。
+- **2026.3.27-12:29:00** 完成了 **API 层 running cancel 第一版接线**，`POST /tasks/:id/cancel` 在任务处于 `running` 状态时，已会调用 `state.runner.cancel_running(task_id)`，并在成功后回写 `cancelled` 状态。
+- **2026.3.27-12:32:00** 完成了 **running cancel 状态竞争保护第一版**，通用执行层在 runner 执行结束后会先检查任务当前状态，若任务已被标记为 `cancelled`，则不再用 succeeded/failed/timeout 回写覆盖取消结果。
 
 ---
 
@@ -273,7 +287,7 @@
 
 ## 5. 当前一句话总结
 
-当前项目**已经完成最小可运行原型**：具备任务创建、排队、执行、状态流转、重试、取消、运行历史、执行日志和状态摘要能力；下一阶段重点是**安全性、可观测性增强以及真实执行器接入准备**。
+当前项目**已经完成最小可运行原型，并进入 `LightpandaRunner` 最小真实执行 V1 阶段**：具备任务创建、排队、执行、状态流转、重试、取消、运行历史、执行日志和状态摘要能力，同时已支持通过本地 `lightpanda fetch <url>` 执行真实页面访问；下一阶段重点是**打磨真实执行链路稳定性、增强查询控制与继续完善控制面**。
 
 ---
 

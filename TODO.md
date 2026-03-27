@@ -12,7 +12,7 @@
 - [x] 定义 REST API 最小接口
 - [x] 实现内存任务队列
 - [x] 实现 fake runner
-- [ ] 打通创建任务 -> 入队 -> 执行 -> 状态更新 -> 查询结果
+- [x] 打通创建任务 -> 入队 -> 执行 -> 状态更新 -> 查询结果
 - [x] 打通创建任务 -> 查询任务 的最小闭环
 - [x] 增加数据库初始化入口
 
@@ -23,8 +23,20 @@
 - [x] 增加任务超时模拟分支
 - [x] 增加结构化日志
 - [x] 增加执行历史与审计字段
-- [ ] 设计 runner trait / adapter interface
-- [ ] 为 `lightpanda-io/browser` 预留适配层
+- [x] 设计 runner trait / adapter interface
+- [x] 为 `lightpanda-io/browser` 预留适配层
+- [x] 抽离 runner 通用执行层（第一轮）
+- [x] 让 RunnerTask 接入真实任务输入（第一版）
+- [x] 接入 `LightpandaRunner` 最小真实执行第一版（`LIGHTPANDA_BIN` + `fetch`）
+- [x] 收紧 `LightpandaRunner` 结果结构与错误语义
+- [x] 增加 `status / runs / logs` 查询控制与分页（第一版）
+- [x] 设计 `running cancel` 的正确演进边界
+- [x] 增加 runner cancel 抽象层（第一版）
+- [x] 为 `LightpandaRunner` 增加取消句柄注册表（第一版）
+- [x] 让 `LightpandaRunner` 尝试终止运行中外部进程（第一版）
+- [x] 让 AppState 持有当前 runner 句柄
+- [x] 打通 API 层 `running cancel` 第一版接线
+- [x] 增加 running cancel 状态竞争保护（第一版）
 - [ ] 设计浏览器指纹能力边界
 - [ ] 设计高级指纹下的性能预算与性能开销控制策略
 - [ ] 设计持续抓取代理的工具（优先基于开源项目改造）

@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::Result;
 use axum::serve;
@@ -9,7 +9,7 @@ use AutoOpenBrowser::{
     app::state::AppState,
     db::init::init_db,
     queue::memory::MemoryTaskQueue,
-    runner::{fake::FakeRunner, lightpanda::LightpandaRunner, spawn_runner_loop, RunnerKind},
+    runner::{fake::FakeRunner, lightpanda::LightpandaRunner, spawn_runner_loop, RunnerKind, TaskRunner},
 };
 
 #[tokio::main]
@@ -21,11 +21,22 @@ async fn main() -> Result<()> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    let state = AppState { db, queue, api_key };
+
+    let runner: Arc<dyn TaskRunner> = match RunnerKind::from_env() {
+        RunnerKind::Fake => Arc::new(FakeRunner),
+        RunnerKind::Lightpanda => Arc::new(LightpandaRunner::default()),
+    };
+
+    let state = AppState {
+        db,
+        queue,
+        api_key,
+        runner: runner.clone(),
+    };
 
     match RunnerKind::from_env() {
-        RunnerKind::Fake => spawn_runner_loop(state.clone(), FakeRunner).await,
-        RunnerKind::Lightpanda => spawn_runner_loop(state.clone(), LightpandaRunner).await,
+        RunnerKind::Fake => spawn_runner_loop(state.clone(), runner).await,
+        RunnerKind::Lightpanda => spawn_runner_loop(state.clone(), runner).await,
     }
 
     let app = build_router(state);

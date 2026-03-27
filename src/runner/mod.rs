@@ -1,11 +1,17 @@
+pub mod engine;
 pub mod fake;
 pub mod lightpanda;
 pub mod types;
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 
 use crate::app::state::AppState;
-pub use types::{RunnerCapabilities, RunnerExecutionResult, RunnerOutcomeStatus, RunnerTask};
+pub use types::{
+    RunnerCancelResult, RunnerCapabilities, RunnerExecutionResult, RunnerOutcomeStatus,
+    RunnerTask,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum RunnerKind {
@@ -40,15 +46,20 @@ pub trait TaskRunner: Send + Sync {
     }
 
     async fn execute(&self, task: RunnerTask) -> RunnerExecutionResult;
+
+    async fn cancel_running(&self, task_id: &str) -> RunnerCancelResult {
+        let _ = task_id;
+        RunnerCancelResult {
+            accepted: false,
+            message: format!("runner {} does not support running cancel", self.name()),
+        }
+    }
 }
 
-pub async fn spawn_runner_loop<R>(state: AppState, runner: R)
-where
-    R: TaskRunner + 'static,
-{
+pub async fn spawn_runner_loop(state: AppState, runner: Arc<dyn TaskRunner>) {
     tokio::spawn(async move {
         loop {
-            let _ = fake::run_one_task_with_runner(&state, &runner).await;
+            let _ = engine::run_one_task_with_runner(&state, runner.as_ref()).await;
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         }
     });

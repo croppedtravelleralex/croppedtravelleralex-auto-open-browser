@@ -58,6 +58,8 @@
 - `VISION.md`：项目最终效果与核心能力定义
 - `LONG_TERM_ROADMAP.md`：中长期能力演进方向
 - `GOLDEN_FEATURES.md`：高价值增强能力清单
+- `LIGHTPANDA_V1_PLAN.md`：`LightpandaRunner` 第一版真实接入边界定义
+- `RUNNING_CANCEL_PLAN.md`：`running cancel` 的设计预留与演进边界
 - `CURRENT_TASK.md`：当前任务定义
 - `CURRENT_DIRECTION.md`：当前阶段方向约束
 
@@ -144,3 +146,14 @@ summaries/
 - 不把单轮临时任务误当成长期方向
 - 每次代码改动后同步检查标准文档是否需要更新
 
+
+
+## 9. 运行配置补充
+
+当前 `LightpandaRunner` V1 通过本地二进制执行：
+
+- 环境变量：`LIGHTPANDA_BIN`
+- 默认值：`lightpanda`
+- 当前最小动作：`lightpanda fetch <url>`
+
+如果宿主机未安装 `lightpanda` 或二进制不在 PATH 中，需要显式配置 `LIGHTPANDA_BIN`。

@@ -28,8 +28,11 @@
 ### P0：主线推进
 1. 核对当前代码与文档是否一致，避免状态漂移
 2. 固化标准接手入口（`AI.md` / `PLAN.md` / `FEATURES.md`）与旧文档映射
-3. 稳定 runner trait / adapter interface
-4. 推进 `lightpanda` runner 适配层从占位走向真实可接入
+3. 完成 runner 通用执行层抽离后的结构收口，确保 fake/lightpanda/engine 职责清晰
+4. 继续验证并打磨 `LightpandaRunner` 本地二进制执行链路（stdout/stderr/timeout/exit code）
+5. 推进 `lightpanda` runner 适配层从最小真实执行走向更稳定可用
+6. 增强 `runs / logs / status` 查询控制与分页
+7. 继续推进 `running cancel` 从设计预留走向最小可用第一版
 
 ### P1：控制面与观测面增强
 1. 明确当前取消、分页、状态控制等缺口的落地顺序
@@ -46,7 +49,7 @@
 
 ## 4. 当前已知阻塞 / 风险
 
-- Lightpanda runner 目前仍偏占位，尚未形成真实执行闭环
+- `LightpandaRunner` 虽已进入最小真实执行阶段，但当前仍偏 V1，缺少充分验证与稳定性保护
 - running cancel 仍未真正支持
 - 查询侧能力后续需要 limit / 分页控制
 - 部分历史文档保留了旧阶段表述，存在认知分散风险

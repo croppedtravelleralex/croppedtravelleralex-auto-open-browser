@@ -93,6 +93,16 @@
 4. 补齐更完整的失败恢复、取消控制与稳定性策略
 5. 推进真实执行器 `lightpanda-io/browser` 集成
 
+## Lightpanda V1 运行说明
+
+当前 `LightpandaRunner` 第一版通过本地二进制方式接入：
+
+- 环境变量：`LIGHTPANDA_BIN`
+- 默认命令：`lightpanda fetch <url>`
+- 当前输出：回收 `stdout / stderr / exit_code / timeout` 到结果链路
+
+如果宿主机未安装 `lightpanda`，请先安装 nightly binary，或将二进制路径写入 `LIGHTPANDA_BIN`。
+
 ## 当前主任务
 
 当前优先任务不是重新堆文档，而是：

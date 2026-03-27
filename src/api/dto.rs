@@ -32,7 +32,13 @@ pub struct CreateTaskRequest {
     pub kind: String,
     pub url: Option<String>,
     pub script: Option<String>,
+    pub timeout_seconds: Option<i64>,
     pub priority: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaginationQuery {
+    pub limit: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
