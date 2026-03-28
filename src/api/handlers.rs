@@ -337,20 +337,22 @@ pub async fn retry_task(
     Path(task_id): Path<String>,
 ) -> Result<Json<RetryTaskResponse>, (StatusCode, String)> {
     let queued_at = now_ts_string();
-    let result = sqlx::query(
-        r#"UPDATE tasks SET status = ?, queued_at = ?, started_at = NULL, finished_at = NULL, result_json = NULL, error_message = NULL WHERE id = ? AND status IN ('failed', 'timed_out')"#,
-    )
-    .bind(TASK_STATUS_QUEUED)
-    .bind(&queued_at)
-    .bind(&task_id)
-    .execute(&state.db)
-    .await
-    .map_err(|err| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("failed to retry task: {err}"),
-        )
-    })?;
+    let retry_sql = format!(
+        "UPDATE tasks SET status = ?, queued_at = ?, started_at = NULL, finished_at = NULL, result_json = NULL, error_message = NULL WHERE id = ? AND status IN ('{}', '{}')",
+        TASK_STATUS_FAILED, TASK_STATUS_TIMED_OUT,
+    );
+    let result = sqlx::query(&retry_sql)
+        .bind(TASK_STATUS_QUEUED)
+        .bind(&queued_at)
+        .bind(&task_id)
+        .execute(&state.db)
+        .await
+        .map_err(|err| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to retry task: {err}"),
+            )
+        })?;
 
     if result.rows_affected() == 0 {
         let current_status = sqlx::query_scalar::<_, String>(r#"SELECT status FROM tasks WHERE id = ?"#)
@@ -375,17 +377,16 @@ pub async fn retry_task(
     }
 
     let pushed = state.queue.push_unique(task_id.clone());
-    if !pushed {
-        return Err((
-            StatusCode::CONFLICT,
-            format!("task already queued for retry: {task_id}"),
-        ));
-    }
+    let message = if pushed {
+        "task re-queued for retry".to_string()
+    } else {
+        "task already present in queue; retry treated as idempotent".to_string()
+    };
 
     Ok(Json(RetryTaskResponse {
         id: task_id,
         status: TASK_STATUS_QUEUED.to_string(),
-        message: "task re-queued for retry".to_string(),
+        message,
     }))
 }
 
