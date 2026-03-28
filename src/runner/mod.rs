@@ -72,8 +72,14 @@ pub async fn spawn_runner_workers(state: AppState, runner: Arc<dyn TaskRunner>, 
         let runner = runner.clone();
         tokio::spawn(async move {
             loop {
-                let _ = engine::run_one_task_with_runner(&state, runner.as_ref()).await;
-                let _ = worker_id;
+                if let Err(err) = engine::run_one_task_with_runner(&state, runner.as_ref()).await {
+                    eprintln!(
+                        "runner worker error: worker_id={}, runner={}, error={}",
+                        worker_id,
+                        runner.name(),
+                        err
+                    );
+                }
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
         });

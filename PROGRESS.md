@@ -72,6 +72,8 @@
 
 - **2026.3.28-11:34:00** 完成了 **执行引擎与状态命名收口第一轮**，修复 `src/runner/engine.rs` 被错误内容污染的问题，恢复 `run_one_task_with_runner(...)` 主执行链路；同时开始统一任务超时状态命名，由 `timeout` 向 `timed_out` 收口，并为 worker 增加最小状态检查，降低并发下的脏执行风险。
 
+- **2026.3.28-12:01:00** 完成了 **worker error 可见化第一版**，修复多 worker loop 对 `engine::run_one_task_with_runner(...)` 错误静默吞掉的问题；当前若执行引擎报错，会输出包含 `worker_id / runner / error` 的运行时错误日志，降低排障黑盒程度。
+
 ## 1. 已经实现 / 已经落地
 
 ### 1.1 项目方向与北极星已定义
