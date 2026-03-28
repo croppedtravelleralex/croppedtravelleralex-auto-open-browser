@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+pub const TASK_STATUS_PENDING: &str = "pending";
+pub const TASK_STATUS_QUEUED: &str = "queued";
+pub const TASK_STATUS_RUNNING: &str = "running";
+pub const TASK_STATUS_SUCCEEDED: &str = "succeeded";
+pub const TASK_STATUS_FAILED: &str = "failed";
+pub const TASK_STATUS_CANCELLED: &str = "cancelled";
+pub const TASK_STATUS_TIMED_OUT: &str = "timed_out";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
@@ -15,13 +23,13 @@ pub enum TaskStatus {
 impl TaskStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
-            TaskStatus::Pending => "pending",
-            TaskStatus::Queued => "queued",
-            TaskStatus::Running => "running",
-            TaskStatus::Succeeded => "succeeded",
-            TaskStatus::Failed => "failed",
-            TaskStatus::Cancelled => "cancelled",
-            TaskStatus::TimedOut => "timed_out",
+            TaskStatus::Pending => TASK_STATUS_PENDING,
+            TaskStatus::Queued => TASK_STATUS_QUEUED,
+            TaskStatus::Running => TASK_STATUS_RUNNING,
+            TaskStatus::Succeeded => TASK_STATUS_SUCCEEDED,
+            TaskStatus::Failed => TASK_STATUS_FAILED,
+            TaskStatus::Cancelled => TASK_STATUS_CANCELLED,
+            TaskStatus::TimedOut => TASK_STATUS_TIMED_OUT,
         }
     }
 

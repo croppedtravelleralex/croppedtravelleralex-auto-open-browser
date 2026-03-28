@@ -6,6 +6,13 @@ use uuid::Uuid;
 
 use crate::{
     app::state::AppState,
+    domain::{
+        run::{RUN_STATUS_RUNNING, RUN_STATUS_SUCCEEDED, RUN_STATUS_FAILED, RUN_STATUS_TIMED_OUT},
+        task::{
+            TASK_STATUS_CANCELLED, TASK_STATUS_FAILED, TASK_STATUS_QUEUED, TASK_STATUS_RUNNING,
+            TASK_STATUS_SUCCEEDED, TASK_STATUS_TIMED_OUT,
+        },
+    },
     runner::{RunnerOutcomeStatus, RunnerTask, TaskRunner},
 };
 
@@ -60,7 +67,7 @@ where
         return Ok(false);
     };
 
-    if current_status != "queued" {
+    if current_status != TASK_STATUS_QUEUED {
         insert_log(
             state,
             &format!("log-{}", Uuid::new_v4()),
@@ -110,7 +117,7 @@ where
     )
     .bind(&run_id)
     .bind(&task_id)
-    .bind("running")
+    .bind(RUN_STATUS_RUNNING)
     .bind(attempt)
     .bind(runner.name())
     .bind(&started_at)
@@ -128,7 +135,7 @@ where
     .await?;
 
     sqlx::query(r#"UPDATE tasks SET status = ?, started_at = ? WHERE id = ? AND status = 'queued'"#)
-        .bind("running")
+        .bind(RUN_STATUS_RUNNING)
         .bind(&started_at)
         .bind(&task_id)
         .execute(&state.db)
@@ -158,20 +165,20 @@ where
 
     let (task_status, run_status, log_level, log_message) = match execution.status {
         RunnerOutcomeStatus::Succeeded => (
-            "succeeded",
-            "succeeded",
+            TASK_STATUS_SUCCEEDED,
+            RUN_STATUS_SUCCEEDED,
             "info",
             format!("{} runner finished successfully, attempt={attempt}", runner.name()),
         ),
         RunnerOutcomeStatus::Failed => (
-            "failed",
-            "failed",
+            TASK_STATUS_FAILED,
+            RUN_STATUS_FAILED,
             "error",
             format!("{} runner finished with failure, attempt={attempt}", runner.name()),
         ),
         RunnerOutcomeStatus::TimedOut => (
-            "timed_out",
-            "timed_out",
+            TASK_STATUS_TIMED_OUT,
+            RUN_STATUS_TIMED_OUT,
             "warn",
             format!("{} runner finished with timeout, attempt={attempt}", runner.name()),
         ),
@@ -193,7 +200,7 @@ where
         .fetch_one(&state.db)
         .await?;
 
-    if current_task_status != "cancelled" {
+    if current_task_status != TASK_STATUS_CANCELLED {
         sqlx::query(
             r#"UPDATE tasks SET status = ?, finished_at = ?, result_json = ?, error_message = ? WHERE id = ?"#,
         )

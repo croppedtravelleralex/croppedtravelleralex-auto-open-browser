@@ -6,7 +6,16 @@ use axum::{
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-use crate::app::state::AppState;
+use crate::{
+    app::state::AppState,
+    domain::{
+        run::{RUN_STATUS_CANCELLED, RUN_STATUS_RUNNING},
+        task::{
+            TASK_STATUS_CANCELLED, TASK_STATUS_FAILED, TASK_STATUS_QUEUED, TASK_STATUS_RUNNING,
+            TASK_STATUS_SUCCEEDED, TASK_STATUS_TIMED_OUT,
+        },
+    },
+};
 
 use super::dto::{
     CancelTaskResponse, CreateTaskRequest, HealthResponse, LogResponse, PaginationQuery,
@@ -188,7 +197,7 @@ pub async fn create_task(
     )
     .bind(&task_id)
     .bind(&payload.kind)
-    .bind("queued")
+    .bind(TASK_STATUS_QUEUED)
     .bind(&input_json)
     .bind(priority)
     .bind(&created_at)
@@ -209,7 +218,7 @@ pub async fn create_task(
         Json(TaskResponse {
             id: task_id,
             kind: payload.kind,
-            status: "queued".to_string(),
+            status: TASK_STATUS_QUEUED.to_string(),
             priority,
         }),
     ))
@@ -331,7 +340,7 @@ pub async fn retry_task(
     let result = sqlx::query(
         r#"UPDATE tasks SET status = ?, queued_at = ?, started_at = NULL, finished_at = NULL, result_json = NULL, error_message = NULL WHERE id = ? AND status IN ('failed', 'timed_out')"#,
     )
-    .bind("queued")
+    .bind(TASK_STATUS_QUEUED)
     .bind(&queued_at)
     .bind(&task_id)
     .execute(&state.db)
@@ -399,7 +408,7 @@ pub async fn cancel_task(
         return Err((StatusCode::NOT_FOUND, format!("task not found: {task_id}")));
     };
 
-    if status == "queued" {
+    if status == TASK_STATUS_QUEUED {
         let removed = state.queue.remove(&task_id);
         if !removed {
             return Err((
@@ -410,7 +419,7 @@ pub async fn cancel_task(
 
         let finished_at = now_ts_string();
         sqlx::query(r#"UPDATE tasks SET status = ?, finished_at = ?, error_message = ? WHERE id = ?"#)
-            .bind("cancelled")
+            .bind(TASK_STATUS_CANCELLED)
             .bind(&finished_at)
             .bind("task cancelled while queued")
             .bind(&task_id)
@@ -434,12 +443,12 @@ pub async fn cancel_task(
 
         return Ok(Json(CancelTaskResponse {
             id: task_id,
-            status: "cancelled".to_string(),
+            status: TASK_STATUS_CANCELLED.to_string(),
             message: "task cancelled while queued".to_string(),
         }));
     }
 
-    if status == "running" {
+    if status == TASK_STATUS_RUNNING {
         let cancel = state.runner.cancel_running(&task_id).await;
         if !cancel.accepted {
             return Err((StatusCode::CONFLICT, cancel.message));
@@ -447,7 +456,7 @@ pub async fn cancel_task(
 
         let finished_at = now_ts_string();
         sqlx::query(r#"UPDATE tasks SET status = ?, finished_at = ?, error_message = ? WHERE id = ?"#)
-            .bind("cancelled")
+            .bind(TASK_STATUS_CANCELLED)
             .bind(&finished_at)
             .bind("task cancelled while running")
             .bind(&task_id)
@@ -475,7 +484,7 @@ pub async fn cancel_task(
 
         if let Some(run_id) = latest_run_id.as_deref() {
             sqlx::query(r#"UPDATE runs SET status = ?, finished_at = ?, error_message = ? WHERE id = ?"#)
-                .bind("cancelled")
+                .bind(TASK_STATUS_CANCELLED)
                 .bind(&finished_at)
                 .bind("task cancelled while running")
                 .bind(run_id)
@@ -509,7 +518,7 @@ pub async fn cancel_task(
 
         return Ok(Json(CancelTaskResponse {
             id: task_id,
-            status: "cancelled".to_string(),
+            status: TASK_STATUS_CANCELLED.to_string(),
             message: cancel.message,
         }));
     }
