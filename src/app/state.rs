@@ -12,4 +12,5 @@ pub struct AppState {
     pub queue: MemoryTaskQueue,
     pub api_key: Option<String>,
     pub runner: Arc<dyn TaskRunner>,
+    pub worker_count: usize,
 }

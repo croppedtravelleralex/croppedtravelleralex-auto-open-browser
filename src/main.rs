@@ -9,7 +9,10 @@ use AutoOpenBrowser::{
     app::state::AppState,
     db::init::init_db,
     queue::memory::MemoryTaskQueue,
-    runner::{fake::FakeRunner, lightpanda::LightpandaRunner, spawn_runner_loop, RunnerKind, TaskRunner},
+    runner::{
+        fake::FakeRunner, lightpanda::LightpandaRunner, runner_concurrency_from_env,
+        spawn_runner_workers, RunnerKind, TaskRunner,
+    },
 };
 
 #[tokio::main]
@@ -27,17 +30,16 @@ async fn main() -> Result<()> {
         RunnerKind::Lightpanda => Arc::new(LightpandaRunner::default()),
     };
 
+    let worker_count = runner_concurrency_from_env();
     let state = AppState {
         db,
         queue,
         api_key,
         runner: runner.clone(),
+        worker_count,
     };
 
-    match RunnerKind::from_env() {
-        RunnerKind::Fake => spawn_runner_loop(state.clone(), runner).await,
-        RunnerKind::Lightpanda => spawn_runner_loop(state.clone(), runner).await,
-    }
+    spawn_runner_workers(state.clone(), runner, worker_count).await;
 
     let app = build_router(state);
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -46,6 +48,7 @@ async fn main() -> Result<()> {
     println!("AutoOpenBrowser listening on http://{}", addr);
     println!("Database initialized at {}", database_url);
     println!("Runner kind: {:?}", RunnerKind::from_env());
+    println!("Runner concurrency: {}", worker_count);
     serve(listener, app).await?;
 
     Ok(())

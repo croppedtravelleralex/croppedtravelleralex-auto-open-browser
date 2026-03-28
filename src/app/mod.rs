@@ -10,11 +10,17 @@ use crate::{
 
 use self::state::AppState;
 
-pub fn build_app_state(db: DbPool, runner: Arc<dyn TaskRunner>, api_key: Option<String>) -> AppState {
+pub fn build_app_state(
+    db: DbPool,
+    runner: Arc<dyn TaskRunner>,
+    api_key: Option<String>,
+    worker_count: usize,
+) -> AppState {
     AppState {
         db,
         queue: MemoryTaskQueue::new(),
         api_key,
         runner,
+        worker_count,
     }
 }
