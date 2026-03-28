@@ -80,6 +80,8 @@
 
 - **2026.3.28-12:11:00** 完成了 **cancel / latest run 状态口径修复第一轮**，将 `api/handlers.rs` 中 running cancel 回写最近一条 run 的状态绑定从 task 常量改为 run 常量，进一步收紧 task/run 状态边界。
 
+- **2026.3.28-12:22:00** 完成了 **Lightpanda timeout 状态口径收口第一轮**，将 `src/runner/lightpanda.rs` 的内部结果状态从 `timeout` 统一到 `timed_out`，同时保留 `error_kind=timeout` 作为错误分类字段，区分“状态口径”和“错误类型”两层语义。
+
 ## 1. 已经实现 / 已经落地
 
 ### 1.1 项目方向与北极星已定义

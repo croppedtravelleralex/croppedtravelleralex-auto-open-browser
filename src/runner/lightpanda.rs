@@ -12,9 +12,12 @@ use tokio::{
     time::{timeout, Duration},
 };
 
-use crate::runner::{
-    RunnerCancelResult, RunnerCapabilities, RunnerExecutionResult, RunnerOutcomeStatus,
-    RunnerTask, TaskRunner,
+use crate::{
+    domain::run::RUN_STATUS_TIMED_OUT,
+    runner::{
+        RunnerCancelResult, RunnerCapabilities, RunnerExecutionResult, RunnerOutcomeStatus,
+        RunnerTask, TaskRunner,
+    },
 };
 
 #[derive(Clone, Default)]
@@ -333,7 +336,7 @@ impl TaskRunner for LightpandaRunner {
                 let _ = child.wait().await;
                 (
                     RunnerOutcomeStatus::TimedOut,
-                    "timeout",
+                    RUN_STATUS_TIMED_OUT,
                     Some("timeout"),
                     format!("lightpanda fetch timed out after {timeout_seconds}s ({kill_note})"),
                     None,
@@ -484,6 +487,6 @@ echo should-not-print",
         assert!(matches!(result.status, RunnerOutcomeStatus::TimedOut));
         let json = result.result_json.expect("result json");
         assert_eq!(json.get("error_kind").and_then(|v| v.as_str()), Some("timeout"));
-        assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("timeout"));
+        assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("timed_out"));
     }
 }
