@@ -30,13 +30,11 @@
 
 ## 当前下一步
 
-1. **完成 `LightpandaRunner` 最小真实执行第一版后的 bug / 结构校准**
-2. **打磨本地二进制执行链路（stdout/stderr/timeout/exit code）**
-3. **补 `LightpandaRunner` 最小验证覆盖（非法输入 / 缺失二进制 / 非 0 退出 / timeout）**
-4. **继续验证 `limit + offset` 分页控制第二版是否满足当前查询需求**
-5. **继续验证并打磨 `running cancel` 第一版状态回写与边界行为**
-6. **恢复 Rust 工具链，完成真实 `cargo test` / `cargo check`**
-7. **保持文档与代码能力同步更新**
+1. **将 worker loop 从内存 pop 驱动推进到 DB-first claim 驱动**
+2. **为 queued -> running 增加原子 claim 语义与测试**
+3. **让内存队列降级为唤醒/提示层，而不再承担状态真相源角色**
+4. **继续补 cancel / retry / claim 的集成测试覆盖**
+5. **保持文档与代码能力同步更新**
 
 - **集成测试骨架第一版已落地**，当前先覆盖 fake runner 成功闭环与 retry 基本状态流转；真实可执行性仍待宿主机 Rust 工具链恢复后跑通 `cargo test` 验证。
 

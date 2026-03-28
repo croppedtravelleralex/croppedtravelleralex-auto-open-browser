@@ -50,6 +50,7 @@
 - [ ] 设计磁盘使用监控与落盘上限策略
 - [ ] 设计 artifact / log 的保留、清理与归档策略
 - [x] 增加数据库目录自动创建
+- [x] 设计下一步 queue claim / durable queue 方案（DB-first claim 第一版）
 - [ ] 设计高并发下的性能优化与写放大控制策略
 
 ## P2
