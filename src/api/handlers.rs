@@ -384,7 +384,7 @@ pub async fn retry_task(
 
     Ok(Json(RetryTaskResponse {
         id: task_id,
-        status: "queued".to_string(),
+        status: TASK_STATUS_QUEUED.to_string(),
         message: "task re-queued for retry".to_string(),
     }))
 }

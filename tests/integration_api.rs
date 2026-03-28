@@ -1,7 +1,12 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::{body::Body, http::{Request, StatusCode}};
-use AutoOpenBrowser::build_test_app;
+use AutoOpenBrowser::{
+    build_test_app,
+    domain::task::{
+        TASK_STATUS_FAILED, TASK_STATUS_QUEUED, TASK_STATUS_RUNNING, TASK_STATUS_SUCCEEDED,
+    },
+};
 use serde_json::Value;
 use tower::ServiceExt;
 
@@ -57,7 +62,7 @@ async fn wait_for_terminal_status(app: &axum::Router, task_id: &str) -> Value {
         )
         .await;
         let status = json.get("status").and_then(|v| v.as_str()).unwrap_or("");
-        if !matches!(status, "queued" | "running") {
+        if !matches!(status, TASK_STATUS_QUEUED | TASK_STATUS_RUNNING) {
             return json;
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
@@ -72,7 +77,7 @@ async fn fake_runner_success_flow_is_visible_across_endpoints() {
 
     let task_id = create_task(&app, "open_page").await;
     let task = wait_for_terminal_status(&app, &task_id).await;
-    assert_eq!(task.get("status").and_then(|v| v.as_str()), Some("succeeded"));
+    assert_eq!(task.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_SUCCEEDED));
 
     let (_, runs_json) = json_response(
         &app,
@@ -83,7 +88,7 @@ async fn fake_runner_success_flow_is_visible_across_endpoints() {
     )
     .await;
     assert!(runs_json.as_array().map(|a| !a.is_empty()).unwrap_or(false));
-    assert_eq!(runs_json[0].get("status").and_then(|v| v.as_str()), Some("succeeded"));
+    assert_eq!(runs_json[0].get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_SUCCEEDED));
 
     let (_, logs_json) = json_response(
         &app,
@@ -113,7 +118,7 @@ async fn retry_flow_requeues_failed_fake_task() {
 
     let task_id = create_task(&app, "fail").await;
     let task = wait_for_terminal_status(&app, &task_id).await;
-    assert_eq!(task.get("status").and_then(|v| v.as_str()), Some("failed"));
+    assert_eq!(task.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_FAILED));
 
     let (retry_status, retry_json) = json_response(
         &app,
@@ -125,5 +130,5 @@ async fn retry_flow_requeues_failed_fake_task() {
     )
     .await;
     assert_eq!(retry_status, StatusCode::OK);
-    assert_eq!(retry_json.get("status").and_then(|v| v.as_str()), Some("queued"));
+    assert_eq!(retry_json.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_QUEUED));
 }
