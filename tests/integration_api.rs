@@ -3,9 +3,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use axum::{body::Body, http::{Request, StatusCode}};
 use AutoOpenBrowser::{
     build_test_app,
-    domain::task::{
-        TASK_STATUS_FAILED, TASK_STATUS_QUEUED, TASK_STATUS_RUNNING, TASK_STATUS_SUCCEEDED, TASK_STATUS_TIMED_OUT,
+    domain::{
+        run::{RUN_STATUS_FAILED, RUN_STATUS_RUNNING},
+        task::{
+            TASK_STATUS_FAILED, TASK_STATUS_QUEUED, TASK_STATUS_RUNNING, TASK_STATUS_SUCCEEDED, TASK_STATUS_TIMED_OUT,
+        },
     },
+    runner::engine::reclaim_stale_running_tasks,
 };
 use serde_json::Value;
 use tower::ServiceExt;
@@ -109,6 +113,58 @@ async fn fake_runner_success_flow_is_visible_across_endpoints() {
     )
     .await;
     assert!(status_json.get("latest_tasks").and_then(|v| v.as_array()).map(|a| !a.is_empty()).unwrap_or(false));
+}
+
+#[tokio::test]
+async fn stale_running_task_can_be_reclaimed_back_to_queue() {
+    let db_url = unique_db_url();
+    let (state, _app) = build_test_app(&db_url).await.expect("build app");
+
+    let task_id = "task-stale-running".to_string();
+    let run_id = "run-stale-running".to_string();
+    sqlx::query(
+        r#"INSERT INTO tasks (id, kind, status, input_json, network_policy_json, fingerprint_profile_json, priority, created_at, queued_at, started_at, finished_at, runner_id, result_json, error_message)
+           VALUES (?, 'open_page', ?, '{}', NULL, NULL, 0, '1', '1', '1', NULL, 'fake-0', NULL, NULL)"#,
+    )
+    .bind(&task_id)
+    .bind(TASK_STATUS_RUNNING)
+    .execute(&state.db)
+    .await
+    .expect("insert stale task");
+
+    sqlx::query(
+        r#"INSERT INTO runs (id, task_id, status, attempt, runner_kind, started_at, finished_at, error_message)
+           VALUES (?, ?, ?, 1, 'fake', '1', NULL, NULL)"#,
+    )
+    .bind(&run_id)
+    .bind(&task_id)
+    .bind(RUN_STATUS_RUNNING)
+    .execute(&state.db)
+    .await
+    .expect("insert stale run");
+
+    let reclaimed = reclaim_stale_running_tasks(&state, 1).await.expect("reclaim");
+    assert_eq!(reclaimed, 1);
+
+    let (status, runner_id): (String, Option<String>) = sqlx::query_as(
+        r#"SELECT status, runner_id FROM tasks WHERE id = ?"#,
+    )
+    .bind(&task_id)
+    .fetch_one(&state.db)
+    .await
+    .expect("load task after reclaim");
+    assert_eq!(status, TASK_STATUS_QUEUED);
+    assert_eq!(runner_id, None);
+
+    let (run_status, error_message): (String, Option<String>) = sqlx::query_as(
+        r#"SELECT status, error_message FROM runs WHERE id = ?"#,
+    )
+    .bind(&run_id)
+    .fetch_one(&state.db)
+    .await
+    .expect("load run after reclaim");
+    assert_eq!(run_status, RUN_STATUS_FAILED);
+    assert_eq!(error_message.as_deref(), Some("reclaimed after stale running timeout"));
 }
 
 #[tokio::test]

@@ -30,8 +30,8 @@
 
 ## 当前下一步
 
-1. **继续打磨 DB-first claim：补 runner_id / lease / reclaim 的最小实现**
-2. **继续补 cancel / retry / claim 的集成测试覆盖**
+1. **继续打磨 DB-first claim：补 lease / heartbeat / reclaim 策略细化**
+2. **继续补 cancel / retry / claim / reclaim 的集成测试覆盖**
 3. **让内存队列进一步降级为唤醒/提示层，而不再参与执行真相判断**
 4. **继续清理 worker loop、claim SQL 与状态机边界**
 5. **保持文档与代码能力同步更新**

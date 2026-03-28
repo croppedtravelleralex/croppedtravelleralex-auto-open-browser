@@ -13,6 +13,7 @@ pub struct TaskRecord {
     pub queued_at: Option<String>,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
+    pub runner_id: Option<String>,
     pub result_json: Option<String>,
     pub error_message: Option<String>,
 }
@@ -26,6 +27,7 @@ pub struct RunRecord {
     pub runner_kind: String,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
+    pub runner_id: Option<String>,
     pub error_message: Option<String>,
 }
 

@@ -358,3 +358,5 @@
 - **2026.3.29-00:06:00** 完成了 **queue claim / durable queue 下一步方案文档**，新增 `QUEUE_CLAIM_PLAN.md`，明确将任务执行权收回 SQLite 原子 claim、让内存队列降级为唤醒提示层，并给出下一阶段的最小实现顺序。
 
 - **2026.3.29-00:12:00** 完成了 **DB-first claim 第一版落地**，worker 执行入口从“先 pop 内存队列再补查数据库”推进到“直接从 SQLite 原子 claim `queued` 任务并创建对应 run”，同时补了一条回归测试，验证即便内存队列条目缺失，DB 中的 queued 任务仍能被执行。
+
+- **2026.3.29-01:13:00** 完成了 **runner_id / stale-running reclaim 最小实现**，为 tasks 增加 `runner_id` 持有者字段，让 DB-first claim 在抢占时写入执行者标识；同时新增 stale-running reclaim 逻辑，可将超时未收尾的 `running` 任务回收为 `queued` 并将悬挂 run 标记为失败，还补了一条集成测试覆盖该回收链路。

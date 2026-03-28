@@ -59,7 +59,7 @@ struct ClaimedTask {
     started_at: String,
 }
 
-async fn claim_next_task<R>(state: &AppState, runner: &R) -> Result<Option<ClaimedTask>>
+async fn claim_next_task<R>(state: &AppState, runner: &R, worker_label: &str) -> Result<Option<ClaimedTask>>
 where
     R: TaskRunner + ?Sized,
 {
@@ -86,10 +86,11 @@ where
 
         let mut tx = state.db.begin().await?;
         let claim = sqlx::query(
-            r#"UPDATE tasks SET status = ?, started_at = ? WHERE id = ? AND status = ?"#,
+            r#"UPDATE tasks SET status = ?, started_at = ?, runner_id = ? WHERE id = ? AND status = ?"#,
         )
         .bind(TASK_STATUS_RUNNING)
         .bind(&started_at)
+        .bind(worker_label)
         .bind(&task_id)
         .bind(TASK_STATUS_QUEUED)
         .execute(&mut *tx)
@@ -136,11 +137,81 @@ where
     Ok(None)
 }
 
-pub async fn run_one_task_with_runner<R>(state: &AppState, runner: &R) -> Result<bool>
+pub async fn reclaim_stale_running_tasks(state: &AppState, stale_after_seconds: u64) -> Result<u64> {
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let threshold = now_secs.saturating_sub(stale_after_seconds);
+    let queued_at = now_ts_string();
+
+    let task_ids = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT id
+        FROM tasks
+        WHERE status = ?
+          AND started_at IS NOT NULL
+          AND CAST(started_at AS INTEGER) <= ?
+        "#,
+    )
+    .bind(TASK_STATUS_RUNNING)
+    .bind(threshold as i64)
+    .fetch_all(&state.db)
+    .await?;
+
+    let mut reclaimed = 0_u64;
+    for task_id in task_ids {
+        let update = sqlx::query(
+            r#"
+            UPDATE tasks
+            SET status = ?, queued_at = ?, started_at = NULL, finished_at = NULL, runner_id = NULL, error_message = NULL
+            WHERE id = ? AND status = ?
+            "#,
+        )
+        .bind(TASK_STATUS_QUEUED)
+        .bind(&queued_at)
+        .bind(&task_id)
+        .bind(TASK_STATUS_RUNNING)
+        .execute(&state.db)
+        .await?;
+
+        if update.rows_affected() == 0 {
+            continue;
+        }
+
+        sqlx::query(
+            r#"UPDATE runs SET status = ?, finished_at = ?, error_message = ? WHERE task_id = ? AND status = ?"#,
+        )
+        .bind(RUN_STATUS_FAILED)
+        .bind(&queued_at)
+        .bind("reclaimed after stale running timeout")
+        .bind(&task_id)
+        .bind(RUN_STATUS_RUNNING)
+        .execute(&state.db)
+        .await?;
+
+        insert_log(
+            state,
+            &format!("log-{}", Uuid::new_v4()),
+            &task_id,
+            None,
+            "warn",
+            "stale running task reclaimed back to queued",
+        )
+        .await?;
+
+        let _ = state.queue.push_unique(task_id.clone());
+        reclaimed += 1;
+    }
+
+    Ok(reclaimed)
+}
+
+pub async fn run_one_task_with_runner<R>(state: &AppState, runner: &R, worker_label: &str) -> Result<bool>
 where
     R: TaskRunner + ?Sized,
 {
-    let Some(claimed) = claim_next_task(state, runner).await? else {
+    let Some(claimed) = claim_next_task(state, runner, worker_label).await? else {
         return Ok(false);
     };
 
@@ -157,7 +228,7 @@ where
         &task_id,
         None,
         "info",
-        "task claimed from database queue",
+        &format!("task claimed from database queue by {}", worker_label),
     )
     .await?;
 
@@ -253,7 +324,7 @@ where
     if current_task_status != TASK_STATUS_CANCELLED {
         let task_update = sqlx::query(
             &format!(
-                "UPDATE tasks SET status = ?, finished_at = ?, result_json = ?, error_message = ? WHERE id = ? AND status = '{}'",
+                "UPDATE tasks SET status = ?, finished_at = ?, runner_id = NULL, result_json = ?, error_message = ? WHERE id = ? AND status = '{}'",
                 TASK_STATUS_RUNNING,
             ),
         )

@@ -11,7 +11,7 @@ use AutoOpenBrowser::{
     queue::memory::MemoryTaskQueue,
     runner::{
         fake::FakeRunner, lightpanda::LightpandaRunner, runner_concurrency_from_env,
-        spawn_runner_workers, RunnerKind, TaskRunner,
+        runner_reclaim_seconds_from_env, spawn_runner_workers, RunnerKind, TaskRunner,
     },
 };
 
@@ -49,6 +49,7 @@ async fn main() -> Result<()> {
     println!("Database initialized at {}", database_url);
     println!("Runner kind: {:?}", RunnerKind::from_env());
     println!("Runner concurrency: {}", worker_count);
+    println!("Runner reclaim after: {:?}", runner_reclaim_seconds_from_env());
     serve(listener, app).await?;
 
     Ok(())
