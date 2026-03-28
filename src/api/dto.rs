@@ -7,7 +7,7 @@ pub struct TaskStatusCounts {
     pub running: i64,
     pub succeeded: i64,
     pub failed: i64,
-    pub timeout: i64,
+    pub timed_out: i64,
     pub cancelled: i64,
 }
 

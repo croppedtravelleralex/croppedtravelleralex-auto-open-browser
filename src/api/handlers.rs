@@ -88,10 +88,10 @@ async fn load_counts(state: &AppState) -> Result<TaskStatusCounts, (StatusCode, 
         .fetch_one(&state.db)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count failed tasks: {err}")))?;
-    let timeout = sqlx::query_scalar::<_, i64>(r#"SELECT COUNT(*) FROM tasks WHERE status = 'timeout'"#)
+    let timed_out = sqlx::query_scalar::<_, i64>(r#"SELECT COUNT(*) FROM tasks WHERE status = 'timed_out'"#)
         .fetch_one(&state.db)
         .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count timeout tasks: {err}")))?;
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count timed_out tasks: {err}")))?;
     let cancelled = sqlx::query_scalar::<_, i64>(r#"SELECT COUNT(*) FROM tasks WHERE status = 'cancelled'"#)
         .fetch_one(&state.db)
         .await
@@ -103,7 +103,7 @@ async fn load_counts(state: &AppState) -> Result<TaskStatusCounts, (StatusCode, 
         running,
         succeeded,
         failed,
-        timeout,
+        timed_out,
         cancelled,
     })
 }
@@ -329,7 +329,7 @@ pub async fn retry_task(
 ) -> Result<Json<RetryTaskResponse>, (StatusCode, String)> {
     let queued_at = now_ts_string();
     let result = sqlx::query(
-        r#"UPDATE tasks SET status = ?, queued_at = ?, started_at = NULL, finished_at = NULL, result_json = NULL, error_message = NULL WHERE id = ? AND status IN ('failed', 'timeout')"#,
+        r#"UPDATE tasks SET status = ?, queued_at = ?, started_at = NULL, finished_at = NULL, result_json = NULL, error_message = NULL WHERE id = ? AND status IN ('failed', 'timed_out')"#,
     )
     .bind("queued")
     .bind(&queued_at)

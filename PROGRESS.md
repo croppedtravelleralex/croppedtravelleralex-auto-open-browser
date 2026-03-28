@@ -70,6 +70,8 @@
 
 - **2026.3.28-10:20:00** 完成了 **最小一致性保护第一轮**，为 retry 增加条件更新与队列防重入队，并在 cancel 后保护 latest run 不再被 worker 终态覆盖；同时补了 `status/logs` 的稳定排序键。
 
+- **2026.3.28-11:34:00** 完成了 **执行引擎与状态命名收口第一轮**，修复 `src/runner/engine.rs` 被错误内容污染的问题，恢复 `run_one_task_with_runner(...)` 主执行链路；同时开始统一任务超时状态命名，由 `timeout` 向 `timed_out` 收口，并为 worker 增加最小状态检查，降低并发下的脏执行风险。
+
 ## 1. 已经实现 / 已经落地
 
 ### 1.1 项目方向与北极星已定义
@@ -161,13 +163,15 @@
 - 队列长度统计
 - 队列内任务移除（支持 queued cancel）
 
-### 1.9 fake runner 第一版已落地
+### 1.9 fake runner 与执行引擎主链路已落地
 已支持：
 - 后台循环消费内存队列
 - success / fail / timeout 三种模拟结果
-- 任务状态回写：`queued -> running -> succeeded/failed/timeout`
+- 任务状态回写主链路已恢复：`queued -> running -> succeeded/failed/timed_out`
 - `started_at / finished_at / result_json / error_message` 回写
 - 已实现 `TaskRunner` 统一抽象，fake runner 已转为该抽象下的一个实现
+- `src/runner/engine.rs` 已完成第一轮修复，不再是错误混入的文档内容
+- worker 在消费任务后会先检查当前任务状态，降低取消/重试并发下的脏执行风险
 
 ### 1.10 run history 已落地
 已支持：

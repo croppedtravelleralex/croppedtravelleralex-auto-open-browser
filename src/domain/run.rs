@@ -7,7 +7,7 @@ pub enum RunStatus {
     Succeeded,
     Failed,
     Cancelled,
-    Timeout,
+    TimedOut,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
