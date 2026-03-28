@@ -81,27 +81,27 @@ async fn load_counts(state: &AppState) -> Result<TaskStatusCounts, (StatusCode, 
         .fetch_one(&state.db)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count tasks: {err}")))?;
-    let queued = sqlx::query_scalar::<_, i64>(r#"SELECT COUNT(*) FROM tasks WHERE status = 'queued'"#)
+    let queued = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM tasks WHERE status = '{}'", TASK_STATUS_QUEUED))
         .fetch_one(&state.db)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count queued tasks: {err}")))?;
-    let running = sqlx::query_scalar::<_, i64>(r#"SELECT COUNT(*) FROM tasks WHERE status = 'running'"#)
+    let running = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM tasks WHERE status = '{}'", TASK_STATUS_RUNNING))
         .fetch_one(&state.db)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count running tasks: {err}")))?;
-    let succeeded = sqlx::query_scalar::<_, i64>(r#"SELECT COUNT(*) FROM tasks WHERE status = 'succeeded'"#)
+    let succeeded = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM tasks WHERE status = '{}'", TASK_STATUS_SUCCEEDED))
         .fetch_one(&state.db)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count succeeded tasks: {err}")))?;
-    let failed = sqlx::query_scalar::<_, i64>(r#"SELECT COUNT(*) FROM tasks WHERE status = 'failed'"#)
+    let failed = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM tasks WHERE status = '{}'", TASK_STATUS_FAILED))
         .fetch_one(&state.db)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count failed tasks: {err}")))?;
-    let timed_out = sqlx::query_scalar::<_, i64>(r#"SELECT COUNT(*) FROM tasks WHERE status = 'timed_out'"#)
+    let timed_out = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM tasks WHERE status = '{}'", TASK_STATUS_TIMED_OUT))
         .fetch_one(&state.db)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count timed_out tasks: {err}")))?;
-    let cancelled = sqlx::query_scalar::<_, i64>(r#"SELECT COUNT(*) FROM tasks WHERE status = 'cancelled'"#)
+    let cancelled = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM tasks WHERE status = '{}'", TASK_STATUS_CANCELLED))
         .fetch_one(&state.db)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count cancelled tasks: {err}")))?;
