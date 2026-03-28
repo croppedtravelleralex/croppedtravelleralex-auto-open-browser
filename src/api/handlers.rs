@@ -484,7 +484,7 @@ pub async fn cancel_task(
 
         if let Some(run_id) = latest_run_id.as_deref() {
             sqlx::query(r#"UPDATE runs SET status = ?, finished_at = ?, error_message = ? WHERE id = ?"#)
-                .bind(TASK_STATUS_CANCELLED)
+                .bind(RUN_STATUS_CANCELLED)
                 .bind(&finished_at)
                 .bind("task cancelled while running")
                 .bind(run_id)
