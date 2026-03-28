@@ -221,8 +221,11 @@ where
         .await?;
 
     if current_task_status != TASK_STATUS_CANCELLED {
-        sqlx::query(
-            r#"UPDATE tasks SET status = ?, finished_at = ?, result_json = ?, error_message = ? WHERE id = ?"#,
+        let task_update = sqlx::query(
+            &format!(
+                "UPDATE tasks SET status = ?, finished_at = ?, result_json = ?, error_message = ? WHERE id = ? AND status = '{}'",
+                TASK_STATUS_RUNNING,
+            ),
         )
         .bind(task_status)
         .bind(&finished_at)
@@ -231,6 +234,21 @@ where
         .bind(&task_id)
         .execute(&state.db)
         .await?;
+
+        if task_update.rows_affected() == 0 {
+            insert_log(
+                state,
+                &format!("log-{}", Uuid::new_v4()),
+                &task_id,
+                Some(&run_id),
+                "warn",
+                &format!(
+                    "{} runner finished but task terminal overwrite skipped because task was no longer running, attempt={attempt}",
+                    runner.name()
+                ),
+            )
+            .await?;
+        }
     } else {
         insert_log(
             state,

@@ -94,6 +94,8 @@
 
 - **2026.3.28-14:23:00** 完成了 **worker finish/run 覆盖竞态收口第一轮**，将 `runner/engine.rs` 中 run 终态回写改为仅允许从 `running` 状态收尾；若 `cancel_task` 已先将 run 标记为 `cancelled`，worker 将跳过覆盖并记录 warning log，降低取消后 run 终态被执行结果反向覆盖的风险。
 
+- **2026.3.28-18:51:00** 完成了 **worker finish/task 覆盖竞态收口第一轮**，将 `runner/engine.rs` 中 task 终态回写改为仅允许从 `running` 状态收尾；若任务已被其他路径改出 `running`（例如取消竞态），worker 将跳过覆盖并记录 warning log，进一步降低 task 终态被晚到执行结果反向覆盖的风险。
+
 ## 1. 已经实现 / 已经落地
 
 ### 1.1 项目方向与北极星已定义
