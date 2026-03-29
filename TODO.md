@@ -52,6 +52,7 @@
 - [x] 增加数据库目录自动创建
 - [x] 设计下一步 queue claim / durable queue 方案（DB-first claim 第一版）
 - [x] 落地 runner_id / stale-running reclaim 最小实现
+- [x] 落地 heartbeat_at / lease-style reclaim 判定最小实现
 - [ ] 设计高并发下的性能优化与写放大控制策略
 
 ## P2

@@ -1,6 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
+use tokio::{sync::oneshot, task::JoinHandle, time::Duration};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -50,6 +51,8 @@ async fn insert_log(
     Ok(())
 }
 
+const HEARTBEAT_INTERVAL_SECONDS: u64 = 5;
+
 struct ClaimedTask {
     task_id: String,
     task_kind: String,
@@ -86,11 +89,12 @@ where
 
         let mut tx = state.db.begin().await?;
         let claim = sqlx::query(
-            r#"UPDATE tasks SET status = ?, started_at = ?, runner_id = ? WHERE id = ? AND status = ?"#,
+            r#"UPDATE tasks SET status = ?, started_at = ?, runner_id = ?, heartbeat_at = ? WHERE id = ? AND status = ?"#,
         )
         .bind(TASK_STATUS_RUNNING)
         .bind(&started_at)
         .bind(worker_label)
+        .bind(&started_at)
         .bind(&task_id)
         .bind(TASK_STATUS_QUEUED)
         .execute(&mut *tx)
@@ -151,7 +155,7 @@ pub async fn reclaim_stale_running_tasks(state: &AppState, stale_after_seconds: 
         FROM tasks
         WHERE status = ?
           AND started_at IS NOT NULL
-          AND CAST(started_at AS INTEGER) <= ?
+          AND CAST(COALESCE(heartbeat_at, started_at) AS INTEGER) <= ?
         "#,
     )
     .bind(TASK_STATUS_RUNNING)
@@ -164,7 +168,7 @@ pub async fn reclaim_stale_running_tasks(state: &AppState, stale_after_seconds: 
         let update = sqlx::query(
             r#"
             UPDATE tasks
-            SET status = ?, queued_at = ?, started_at = NULL, finished_at = NULL, runner_id = NULL, error_message = NULL
+            SET status = ?, queued_at = ?, started_at = NULL, finished_at = NULL, runner_id = NULL, heartbeat_at = NULL, error_message = NULL
             WHERE id = ? AND status = ?
             "#,
         )
@@ -207,6 +211,30 @@ pub async fn reclaim_stale_running_tasks(state: &AppState, stale_after_seconds: 
     Ok(reclaimed)
 }
 
+fn spawn_task_heartbeat(state: AppState, task_id: String, worker_label: String) -> (oneshot::Sender<()>, JoinHandle<()>) {
+    let (stop_tx, mut stop_rx) = oneshot::channel();
+    let handle = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = &mut stop_rx => break,
+                _ = tokio::time::sleep(Duration::from_secs(HEARTBEAT_INTERVAL_SECONDS)) => {
+                    let heartbeat_at = now_ts_string();
+                    let _ = sqlx::query(
+                        r#"UPDATE tasks SET heartbeat_at = ? WHERE id = ? AND status = ? AND runner_id = ?"#,
+                    )
+                    .bind(&heartbeat_at)
+                    .bind(&task_id)
+                    .bind(TASK_STATUS_RUNNING)
+                    .bind(&worker_label)
+                    .execute(&state.db)
+                    .await;
+                }
+            }
+        }
+    });
+    (stop_tx, handle)
+}
+
 pub async fn run_one_task_with_runner<R>(state: &AppState, runner: &R, worker_label: &str) -> Result<bool>
 where
     R: TaskRunner + ?Sized,
@@ -221,6 +249,7 @@ where
     let attempt = claimed.attempt;
     let run_id = claimed.run_id;
     let _started_at = claimed.started_at;
+    let (heartbeat_stop, heartbeat_handle) = spawn_task_heartbeat(state.clone(), task_id.clone(), worker_label.to_string());
 
     insert_log(
         state,
@@ -261,6 +290,9 @@ where
             timeout_seconds,
         })
         .await;
+
+    let _ = heartbeat_stop.send(());
+    let _ = heartbeat_handle.await;
 
     let finished_at = now_ts_string();
 
@@ -324,7 +356,7 @@ where
     if current_task_status != TASK_STATUS_CANCELLED {
         let task_update = sqlx::query(
             &format!(
-                "UPDATE tasks SET status = ?, finished_at = ?, runner_id = NULL, result_json = ?, error_message = ? WHERE id = ? AND status = '{}'",
+                "UPDATE tasks SET status = ?, finished_at = ?, runner_id = NULL, heartbeat_at = NULL, result_json = ?, error_message = ? WHERE id = ? AND status = '{}'",
                 TASK_STATUS_RUNNING,
             ),
         )

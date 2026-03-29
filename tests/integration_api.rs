@@ -123,8 +123,8 @@ async fn stale_running_task_can_be_reclaimed_back_to_queue() {
     let task_id = "task-stale-running".to_string();
     let run_id = "run-stale-running".to_string();
     sqlx::query(
-        r#"INSERT INTO tasks (id, kind, status, input_json, network_policy_json, fingerprint_profile_json, priority, created_at, queued_at, started_at, finished_at, runner_id, result_json, error_message)
-           VALUES (?, 'open_page', ?, '{}', NULL, NULL, 0, '1', '1', '1', NULL, 'fake-0', NULL, NULL)"#,
+        r#"INSERT INTO tasks (id, kind, status, input_json, network_policy_json, fingerprint_profile_json, priority, created_at, queued_at, started_at, finished_at, runner_id, heartbeat_at, result_json, error_message)
+           VALUES (?, 'open_page', ?, '{}', NULL, NULL, 0, '1', '1', '1', NULL, 'fake-0', NULL, NULL, NULL)"#,
     )
     .bind(&task_id)
     .bind(TASK_STATUS_RUNNING)
@@ -165,6 +165,55 @@ async fn stale_running_task_can_be_reclaimed_back_to_queue() {
     .expect("load run after reclaim");
     assert_eq!(run_status, RUN_STATUS_FAILED);
     assert_eq!(error_message.as_deref(), Some("reclaimed after stale running timeout"));
+}
+
+#[tokio::test]
+async fn running_task_with_fresh_heartbeat_is_not_reclaimed() {
+    let db_url = unique_db_url();
+    let (state, _app) = build_test_app(&db_url).await.expect("build app");
+
+    let task_id = "task-fresh-heartbeat".to_string();
+    let run_id = "run-fresh-heartbeat".to_string();
+    let heartbeat_now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .to_string();
+
+    sqlx::query(
+        r#"INSERT INTO tasks (id, kind, status, input_json, network_policy_json, fingerprint_profile_json, priority, created_at, queued_at, started_at, finished_at, runner_id, heartbeat_at, result_json, error_message)
+           VALUES (?, 'open_page', ?, '{}', NULL, NULL, 0, '1', '1', '1', NULL, 'fake-0', ?, NULL, NULL)"#,
+    )
+    .bind(&task_id)
+    .bind(TASK_STATUS_RUNNING)
+    .bind(&heartbeat_now)
+    .execute(&state.db)
+    .await
+    .expect("insert running task");
+
+    sqlx::query(
+        r#"INSERT INTO runs (id, task_id, status, attempt, runner_kind, started_at, finished_at, error_message)
+           VALUES (?, ?, ?, 1, 'fake', '1', NULL, NULL)"#,
+    )
+    .bind(&run_id)
+    .bind(&task_id)
+    .bind(RUN_STATUS_RUNNING)
+    .execute(&state.db)
+    .await
+    .expect("insert running run");
+
+    let reclaimed = reclaim_stale_running_tasks(&state, 1).await.expect("reclaim");
+    assert_eq!(reclaimed, 0);
+
+    let (status, runner_id): (String, Option<String>) = sqlx::query_as(
+        r#"SELECT status, runner_id FROM tasks WHERE id = ?"#,
+    )
+    .bind(&task_id)
+    .fetch_one(&state.db)
+    .await
+    .expect("load task after reclaim attempt");
+    assert_eq!(status, TASK_STATUS_RUNNING);
+    assert_eq!(runner_id.as_deref(), Some("fake-0"));
 }
 
 #[tokio::test]

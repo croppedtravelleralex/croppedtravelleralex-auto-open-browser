@@ -370,7 +370,7 @@ pub async fn retry_task(
     let pushed = state.queue.push_unique(task_id.clone());
     let queued_at = now_ts_string();
     let retry_sql = format!(
-        "UPDATE tasks SET status = ?, queued_at = ?, started_at = NULL, finished_at = NULL, runner_id = NULL, result_json = NULL, error_message = NULL WHERE id = ? AND status IN ('{}', '{}')",
+        "UPDATE tasks SET status = ?, queued_at = ?, started_at = NULL, finished_at = NULL, runner_id = NULL, heartbeat_at = NULL, result_json = NULL, error_message = NULL WHERE id = ? AND status IN ('{}', '{}')",
         TASK_STATUS_FAILED, TASK_STATUS_TIMED_OUT,
     );
     let result = sqlx::query(&retry_sql)
@@ -470,7 +470,7 @@ pub async fn cancel_task(
         }
 
         let finished_at = now_ts_string();
-        sqlx::query(r#"UPDATE tasks SET status = ?, finished_at = ?, runner_id = NULL, error_message = ? WHERE id = ?"#)
+        sqlx::query(r#"UPDATE tasks SET status = ?, finished_at = ?, runner_id = NULL, heartbeat_at = NULL, error_message = ? WHERE id = ?"#)
             .bind(TASK_STATUS_CANCELLED)
             .bind(&finished_at)
             .bind("task cancelled while queued")
@@ -507,7 +507,7 @@ pub async fn cancel_task(
         }
 
         let finished_at = now_ts_string();
-        sqlx::query(r#"UPDATE tasks SET status = ?, finished_at = ?, runner_id = NULL, error_message = ? WHERE id = ?"#)
+        sqlx::query(r#"UPDATE tasks SET status = ?, finished_at = ?, runner_id = NULL, heartbeat_at = NULL, error_message = ? WHERE id = ?"#)
             .bind(TASK_STATUS_CANCELLED)
             .bind(&finished_at)
             .bind("task cancelled while running")

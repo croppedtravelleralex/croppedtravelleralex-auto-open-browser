@@ -360,3 +360,5 @@
 - **2026.3.29-00:12:00** 完成了 **DB-first claim 第一版落地**，worker 执行入口从“先 pop 内存队列再补查数据库”推进到“直接从 SQLite 原子 claim `queued` 任务并创建对应 run”，同时补了一条回归测试，验证即便内存队列条目缺失，DB 中的 queued 任务仍能被执行。
 
 - **2026.3.29-01:13:00** 完成了 **runner_id / stale-running reclaim 最小实现**，为 tasks 增加 `runner_id` 持有者字段，让 DB-first claim 在抢占时写入执行者标识；同时新增 stale-running reclaim 逻辑，可将超时未收尾的 `running` 任务回收为 `queued` 并将悬挂 run 标记为失败，还补了一条集成测试覆盖该回收链路。
+
+- **2026.3.29-08:45:00** 完成了 **heartbeat_at / lease-style reclaim 最小实现**，为 running 任务增加 `heartbeat_at` 字段与执行期心跳刷新逻辑，让 reclaim 优先基于 `heartbeat_at` 而不是仅靠 `started_at` 粗判；同时补了一条集成测试，验证带新鲜 heartbeat 的 running 任务不会被误回收。

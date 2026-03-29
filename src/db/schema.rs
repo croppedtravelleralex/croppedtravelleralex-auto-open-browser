@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     started_at TEXT,
     finished_at TEXT,
     runner_id TEXT,
+    heartbeat_at TEXT,
     result_json TEXT,
     error_message TEXT
 );
@@ -26,7 +27,6 @@ CREATE TABLE IF NOT EXISTS runs (
     runner_kind TEXT NOT NULL,
     started_at TEXT,
     finished_at TEXT,
-    runner_id TEXT,
     error_message TEXT,
     FOREIGN KEY(task_id) REFERENCES tasks(id)
 );
