@@ -175,6 +175,7 @@ pub async fn reclaim_stale_running_tasks(state: &AppState, stale_after_seconds: 
         FROM tasks
         WHERE status = ?
           AND started_at IS NOT NULL
+          AND runner_id IS NOT NULL
           AND CAST(COALESCE(heartbeat_at, started_at) AS INTEGER) <= ?
         "#,
     )
@@ -189,7 +190,7 @@ pub async fn reclaim_stale_running_tasks(state: &AppState, stale_after_seconds: 
             r#"
             UPDATE tasks
             SET status = ?, queued_at = ?, started_at = NULL, finished_at = NULL, runner_id = NULL, heartbeat_at = NULL, error_message = NULL
-            WHERE id = ? AND status = ?
+            WHERE id = ? AND status = ? AND runner_id IS NOT NULL
             "#,
         )
         .bind(TASK_STATUS_QUEUED)

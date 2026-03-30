@@ -32,9 +32,9 @@
 
 ## 当前下一步
 
-1. **继续做 DB-first claim / reclaim 的第三版并发竞争收口**
+1. **开始代理池主线设计**
 2. **继续细化 lease TTL / reclaim 策略与 worker 退避**
-3. **开始代理池主线设计**
+3. **做轻量性能评分与瓶颈梳理**
 4. **让内存队列进一步降级为唤醒/提示层，而不再参与执行真相判断**
 5. **继续清理 worker loop、claim SQL 与状态机边界**
 6. **继续把并发运行态观测补到 API / metrics 层，而不只停留在启动日志**
@@ -55,3 +55,5 @@
 - **DB-first claim / reclaim 参数化第一版已落地**，当前 heartbeat 间隔与 claim 重试次数都已可配置，`/status.worker` 也能直接看到当前运行参数；但 claim 原子性、退避策略和更高并发下的一致性收口仍需继续加强。
 
 - **DB-first claim / reclaim 并发收口第二版已落地**，当前 claim 已切到单条原子抢占链，worker 空闲时也会指数退避，减少无任务空转与并发抢占抖动；但更深层的 retry / reclaim / cancel 三方竞争、claim 原子性极限验证和退避策略精细化仍需继续补齐。
+
+- **DB-first claim / reclaim 并发收口第三版已落地**，当前 reclaim 不会再误回收没有 `runner_id` 的半脏 running 任务，`running` 状态下的 retry 也已收口为明确的 `409 CONFLICT`；调度内核的一致性比前几轮明显更稳。

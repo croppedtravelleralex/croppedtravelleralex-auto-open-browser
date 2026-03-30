@@ -116,6 +116,7 @@
 - **2026.3.30-22:03:00** 完成了 **fingerprint 注入与异常场景集成测试补强**，新增 profile 注入成功、缺失 profile、inactive profile、stale version 四类集成测试；当前策略为：inactive profile 在创建阶段直接拒绝，缺失或版本不匹配的历史绑定在 runner 执行阶段按“无可用 profile”降级处理。
 - **2026.3.30-23:00:00** 完成了 **DB-first claim / reclaim 参数化第一版**，新增 `AUTO_OPEN_BROWSER_RUNNER_HEARTBEAT_SECONDS` 与 `AUTO_OPEN_BROWSER_RUNNER_CLAIM_RETRY_LIMIT` 环境变量，claim 重试次数与 heartbeat 间隔不再写死；`/status.worker` 现在会返回 `reclaim_after_seconds / heartbeat_interval_seconds / claim_retry_limit` 这组运行参数。
 - **2026.3.30-23:09:00** 完成了 **DB-first claim / reclaim 并发收口第二版**，将 `claim_next_task()` 从“先查 candidate 再 update”推进为单条 `CTE + UPDATE ... RETURNING` 的原子抢占链，并为 worker 增加 idle exponential backoff；`/status.worker` 现在额外暴露 `idle_backoff_min_ms / idle_backoff_max_ms`。
+- **2026.3.30-23:12:00** 完成了 **DB-first claim / reclaim 并发收口第三版**，为 reclaim 增加 `runner_id IS NOT NULL` 安全条件，避免误回收半脏 running 记录；同时明确 `running` 状态下的 retry 返回 `409 CONFLICT`，并补齐对应回归测试。
 
 ## 1. 已经实现 / 已经落地
 

@@ -105,3 +105,8 @@
   - `claim_next_task()` 使用单条 `CTE + UPDATE ... RETURNING` 原子抢占
   - worker 空闲与错误场景采用 idle exponential backoff
   - `/status.worker` 可见 heartbeat / claim retry / idle backoff 参数
+
+- 并发收口第三版已落地：
+  - reclaim 增加 `runner_id IS NOT NULL` 安全条件
+  - `running` 状态下 retry 明确返回 `409 CONFLICT`
+  - 新增对应回归测试，当前调度边界更清晰
