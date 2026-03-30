@@ -4,6 +4,7 @@ use axum::{
     response::Json,
 };
 use std::{net::SocketAddr, time::{Instant, SystemTime, UNIX_EPOCH}};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use uuid::Uuid;
 
 use crate::{
@@ -54,7 +55,6 @@ struct ProxyRow {
     host: String,
     port: i64,
     username: Option<String>,
-    password: Option<String>,
     region: Option<String>,
     country: Option<String>,
     provider: Option<String>,
@@ -220,44 +220,29 @@ async fn insert_task_log(
 }
 
 async fn load_counts(state: &AppState) -> Result<TaskStatusCounts, (StatusCode, String)> {
-    let total = sqlx::query_scalar::<_, i64>(r#"SELECT COUNT(*) FROM tasks"#)
+    let (total, queued, running, succeeded, failed, timed_out, cancelled): (i64, i64, i64, i64, i64, i64, i64) =
+        sqlx::query_as(
+            r#"SELECT
+                   COUNT(*) AS total,
+                   COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS queued,
+                   COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS running,
+                   COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS succeeded,
+                   COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS failed,
+                   COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS timed_out,
+                   COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS cancelled
+               FROM tasks"#,
+        )
+        .bind(TASK_STATUS_QUEUED)
+        .bind(TASK_STATUS_RUNNING)
+        .bind(TASK_STATUS_SUCCEEDED)
+        .bind(TASK_STATUS_FAILED)
+        .bind(TASK_STATUS_TIMED_OUT)
+        .bind(TASK_STATUS_CANCELLED)
         .fetch_one(&state.db)
         .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count tasks: {err}")))?;
-    let queued = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM tasks WHERE status = '{}'", TASK_STATUS_QUEUED))
-        .fetch_one(&state.db)
-        .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count queued tasks: {err}")))?;
-    let running = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM tasks WHERE status = '{}'", TASK_STATUS_RUNNING))
-        .fetch_one(&state.db)
-        .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count running tasks: {err}")))?;
-    let succeeded = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM tasks WHERE status = '{}'", TASK_STATUS_SUCCEEDED))
-        .fetch_one(&state.db)
-        .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count succeeded tasks: {err}")))?;
-    let failed = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM tasks WHERE status = '{}'", TASK_STATUS_FAILED))
-        .fetch_one(&state.db)
-        .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count failed tasks: {err}")))?;
-    let timed_out = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM tasks WHERE status = '{}'", TASK_STATUS_TIMED_OUT))
-        .fetch_one(&state.db)
-        .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count timed_out tasks: {err}")))?;
-    let cancelled = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM tasks WHERE status = '{}'", TASK_STATUS_CANCELLED))
-        .fetch_one(&state.db)
-        .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to count cancelled tasks: {err}")))?;
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to aggregate task counts: {err}")))?;
 
-    Ok(TaskStatusCounts {
-        total,
-        queued,
-        running,
-        succeeded,
-        failed,
-        timed_out,
-        cancelled,
-    })
+    Ok(TaskStatusCounts { total, queued, running, succeeded, failed, timed_out, cancelled })
 }
 
 pub async fn health(
@@ -901,7 +886,7 @@ pub async fn list_proxies(
 ) -> Result<Json<Vec<ProxyResponse>>, (StatusCode, String)> {
     let limit = sanitize_limit(query.limit, 20, 200);
     let offset = sanitize_offset(query.offset);
-    let rows = sqlx::query_as::<_, ProxyRow>(r#"SELECT id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, created_at, updated_at FROM proxies ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"#)
+    let rows = sqlx::query_as::<_, ProxyRow>(r#"SELECT id, scheme, host, port, username, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, created_at, updated_at FROM proxies ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"#)
         .bind(limit)
         .bind(offset)
         .fetch_all(&state.db)
@@ -914,7 +899,7 @@ pub async fn get_proxy(
     State(state): State<AppState>,
     Path(proxy_id): Path<String>,
 ) -> Result<Json<ProxyResponse>, (StatusCode, String)> {
-    let row = sqlx::query_as::<_, ProxyRow>(r#"SELECT id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, created_at, updated_at FROM proxies WHERE id = ?"#)
+    let row = sqlx::query_as::<_, ProxyRow>(r#"SELECT id, scheme, host, port, username, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, created_at, updated_at FROM proxies WHERE id = ?"#)
         .bind(&proxy_id)
         .fetch_optional(&state.db)
         .await
@@ -945,18 +930,43 @@ pub async fn smoke_test_proxy(
         .map_err(|err| (StatusCode::BAD_REQUEST, format!("proxy address is invalid for smoke test: {err}")))?;
 
     let started = Instant::now();
-    let reachable = tokio::time::timeout(
-        std::time::Duration::from_secs(3),
-        tokio::net::TcpStream::connect(addr),
-    )
-    .await
-    .ok()
-    .and_then(|result| result.ok())
-    .is_some();
+    let mut stream = tokio::time::timeout(std::time::Duration::from_secs(3), tokio::net::TcpStream::connect(addr))
+        .await
+        .ok()
+        .and_then(|result| result.ok());
+    let reachable = stream.is_some();
+    let mut protocol_ok = false;
+    let mut smoke_message = if reachable {
+        "tcp connect succeeded but proxy protocol not validated".to_string()
+    } else {
+        "tcp smoke test failed".to_string()
+    };
+
+    if let Some(stream_ref) = stream.as_mut() {
+        let probe = b"CONNECT example.com:443 HTTP/1.1
+Host: example.com:443
+
+";
+        if tokio::time::timeout(std::time::Duration::from_secs(3), stream_ref.write_all(probe)).await.ok().is_some() {
+            let mut buf = [0_u8; 256];
+            if let Ok(Ok(n)) = tokio::time::timeout(std::time::Duration::from_secs(3), stream_ref.read(&mut buf)).await {
+                if n > 0 {
+                    let text = String::from_utf8_lossy(&buf[..n]).to_ascii_lowercase();
+                    if text.contains("http/1.1") || text.contains("http/1.0") {
+                        protocol_ok = true;
+                        smoke_message = "http connect smoke test received proxy response".to_string();
+                    } else {
+                        smoke_message = format!("tcp connect ok but proxy response was not http-like: {text}");
+                    }
+                }
+            }
+        }
+    }
+
     let latency_ms = Some(started.elapsed().as_millis());
     let now = now_ts_string();
 
-    if reachable {
+    if reachable && protocol_ok {
         sqlx::query(r#"UPDATE proxies SET last_checked_at = ?, cooldown_until = NULL, updated_at = ? WHERE id = ?"#)
             .bind(&now)
             .bind(&now)
@@ -968,9 +978,10 @@ pub async fn smoke_test_proxy(
         Ok(Json(ProxySmokeResponse {
             id: proxy_id,
             reachable: true,
+            protocol_ok: true,
             latency_ms,
             status: "ok".to_string(),
-            message: "tcp smoke test succeeded".to_string(),
+            message: smoke_message,
         }))
     } else {
         let cooldown_until = (now.parse::<u64>().unwrap_or(0) + 60).to_string();
@@ -985,10 +996,11 @@ pub async fn smoke_test_proxy(
 
         Ok(Json(ProxySmokeResponse {
             id: proxy_id,
-            reachable: false,
+            reachable,
+            protocol_ok,
             latency_ms,
             status: "failed".to_string(),
-            message: "tcp smoke test failed".to_string(),
+            message: smoke_message,
         }))
     }
 }

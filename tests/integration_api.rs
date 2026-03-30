@@ -1250,6 +1250,7 @@ async fn proxy_smoke_test_marks_unreachable_proxy_failed() {
     ).await;
     assert_eq!(smoke_status, StatusCode::OK);
     assert_eq!(smoke_json.get("reachable").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(smoke_json.get("protocol_ok").and_then(|v| v.as_bool()), Some(false));
 
     let (failure_count, last_checked_at, cooldown_until): (i64, Option<String>, Option<String>) =
         sqlx::query_as(r#"SELECT failure_count, last_checked_at, cooldown_until FROM proxies WHERE id = 'proxy-smoke-dead'"#)
@@ -1300,4 +1301,98 @@ async fn sticky_session_binding_table_is_written_and_reused() {
     let task2 = wait_for_terminal_status(&app, &task_id2).await;
     assert_eq!(task2.get("proxy_id").and_then(|v| v.as_str()), Some(bound_proxy_id.as_str()));
     assert_eq!(task2.get("proxy_resolution_status").and_then(|v| v.as_str()), Some("resolved_sticky"));
+}
+
+
+#[tokio::test]
+async fn status_counts_are_aggregated_correctly() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    let fixtures = [
+        ("task-q", TASK_STATUS_QUEUED),
+        ("task-r", TASK_STATUS_RUNNING),
+        ("task-s", TASK_STATUS_SUCCEEDED),
+        ("task-f", TASK_STATUS_FAILED),
+        ("task-t", TASK_STATUS_TIMED_OUT),
+        ("task-c", TASK_STATUS_CANCELLED),
+    ];
+    for (id, status) in fixtures {
+        sqlx::query(
+            r#"INSERT INTO tasks (id, kind, status, input_json, network_policy_json, fingerprint_profile_json, priority, created_at, queued_at, started_at, finished_at, runner_id, heartbeat_at, result_json, error_message)
+               VALUES (?, 'open_page', ?, '{}', NULL, NULL, 0, '1', '1', NULL, NULL, NULL, NULL, NULL, NULL)"#,
+        )
+        .bind(id)
+        .bind(status)
+        .execute(&state.db)
+        .await
+        .expect("insert fixture task");
+    }
+
+    let (_, status_json) = json_response(
+        &app,
+        Request::builder().uri("/status?limit=10&offset=0").body(Body::empty()).expect("request"),
+    ).await;
+
+    let counts = status_json.get("counts").expect("counts");
+    assert_eq!(counts.get("total").and_then(|v| v.as_i64()), Some(6));
+    assert_eq!(counts.get("queued").and_then(|v| v.as_i64()), Some(1));
+    assert_eq!(counts.get("running").and_then(|v| v.as_i64()), Some(1));
+    assert_eq!(counts.get("succeeded").and_then(|v| v.as_i64()), Some(1));
+    assert_eq!(counts.get("failed").and_then(|v| v.as_i64()), Some(1));
+    assert_eq!(counts.get("timed_out").and_then(|v| v.as_i64()), Some(1));
+    assert_eq!(counts.get("cancelled").and_then(|v| v.as_i64()), Some(1));
+}
+
+
+#[tokio::test]
+async fn proxy_smoke_test_accepts_http_like_proxy_response() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    tokio::spawn(async move {
+        if let Ok((socket, _)) = listener.accept().await {
+            let mut buf = [0_u8; 256];
+            let _ = socket.readable().await;
+            let _ = socket.try_read(&mut buf);
+            let _ = socket.writable().await;
+            let _ = socket.try_write(b"HTTP/1.1 200 Connection Established
+
+");
+        }
+    });
+
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+    let proxy_payload = serde_json::json!({
+        "id": "proxy-smoke-http",
+        "scheme": "http",
+        "host": addr.ip().to_string(),
+        "port": addr.port(),
+        "region": "local",
+        "country": "ZZ",
+        "provider": "smoke",
+        "score": 0.5
+    });
+    let (create_status, _) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/proxies").header("content-type", "application/json").body(Body::from(proxy_payload.to_string())).expect("request"),
+    ).await;
+    assert_eq!(create_status, StatusCode::CREATED);
+
+    let (smoke_status, smoke_json) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/proxies/proxy-smoke-http/smoke").body(Body::empty()).expect("request"),
+    ).await;
+    assert_eq!(smoke_status, StatusCode::OK);
+    assert_eq!(smoke_json.get("reachable").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(smoke_json.get("protocol_ok").and_then(|v| v.as_bool()), Some(true));
+
+    let (failure_count, last_checked_at, cooldown_until): (i64, Option<String>, Option<String>) =
+        sqlx::query_as(r#"SELECT failure_count, last_checked_at, cooldown_until FROM proxies WHERE id = 'proxy-smoke-http'"#)
+            .fetch_one(&state.db)
+            .await
+            .expect("load proxy after smoke test success");
+    assert_eq!(failure_count, 0);
+    assert!(last_checked_at.is_some());
+    assert!(cooldown_until.is_none());
 }

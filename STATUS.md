@@ -32,9 +32,9 @@
 
 ## 当前下一步
 
-1. **把 `/status` 的多次 `COUNT(*)` 收成单条聚合 SQL**
-2. **收拾 warning 和小脏点**
-3. **把 smoke test 升级到 HTTP/代理协议层验证**
+1. **整理文档并 commit/push 当前阶段收口**
+2. **继续细化 lease TTL / reclaim 策略与 worker 退避**
+3. **清掉新冒出来的测试 warning（`unused_mut`）**
 4. **让内存队列进一步降级为唤醒/提示层，而不再参与执行真相判断**
 5. **继续清理 worker loop、claim SQL 与状态机边界**
 6. **继续把并发运行态观测补到 API / metrics 层，而不只停留在启动日志**
@@ -67,3 +67,5 @@
 - **代理观测面增强与 smoke test 第一版已落地**，当前已可从任务详情和 `/status` 直接看到代理命中信息与解析状态，并能通过 `POST /proxies/:id/smoke` 对单个代理做最小 TCP 连通性探测；但还没有更高级的 HTTP 层验证、匿名性校验与批量巡检机制。
 
 - **sticky/provider 正式映射结构第一版已落地**，当前 `sticky_session` 已通过 `proxy_session_bindings` 表维护绑定，不再依赖历史任务结果 JSON 回溯；后续重点应转向 `/status` 聚合成本、warning 清理以及更真实的代理协议验证。
+
+- **HTTP/代理协议层 smoke test 第一版已落地**，当前 smoke test 已不再只验证 TCP 端口可达，而会尝试发送 HTTP CONNECT 并判断代理响应是否像样；但仍未覆盖 HTTPS 上游连通性、匿名性/IP 地区校验与批量巡检。

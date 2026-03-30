@@ -191,6 +191,7 @@ pub struct ProxyResponse {
 pub struct ProxySmokeResponse {
     pub id: String,
     pub reachable: bool,
+    pub protocol_ok: bool,
     pub latency_ms: Option<u128>,
     pub status: String,
     pub message: String,

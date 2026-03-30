@@ -139,3 +139,8 @@
   - 执行完成后 upsert `sticky_session -> proxy_id` 绑定
   - 执行前优先按 binding 命中，并校验 `expires_at / cooldown / provider / region / min_score`
   - sticky 不再走历史任务 `result_json` 回溯
+
+- HTTP/代理协议层 smoke test 第一版已落地：
+  - `POST /proxies/:id/smoke` 建立 TCP 后发送最小 HTTP CONNECT 探针
+  - `ProxySmokeResponse` 新增 `protocol_ok`
+  - 成功标准从“端口通”提升到“能收到 HTTP-like 代理响应”
