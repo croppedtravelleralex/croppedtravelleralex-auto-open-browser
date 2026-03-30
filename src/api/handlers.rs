@@ -19,10 +19,10 @@ use crate::{
 };
 
 use super::dto::{
-    CancelTaskResponse, CreateFingerprintProfileRequest, CreateTaskRequest,
+    CancelTaskResponse, CreateFingerprintProfileRequest, CreateProxyRequest, CreateTaskRequest,
     FingerprintMetricsResponse, FingerprintProfileResponse, HealthResponse, LogResponse,
-    PaginationQuery, RetryTaskResponse, RunResponse, StatusResponse, TaskResponse,
-    TaskStatusCounts, WorkerStatusResponse,
+    PaginationQuery, ProxyResponse, RetryTaskResponse, RunResponse, StatusResponse,
+    TaskResponse, TaskStatusCounts, WorkerStatusResponse,
 };
 
 fn now_ts_string() -> String {
@@ -44,6 +44,50 @@ fn sanitize_offset(offset: Option<i64>) -> i64 {
     match offset {
         Some(value) if value > 0 => value,
         _ => 0,
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct ProxyRow {
+    id: String,
+    scheme: String,
+    host: String,
+    port: i64,
+    username: Option<String>,
+    password: Option<String>,
+    region: Option<String>,
+    country: Option<String>,
+    provider: Option<String>,
+    status: String,
+    score: f64,
+    success_count: i64,
+    failure_count: i64,
+    last_checked_at: Option<String>,
+    last_used_at: Option<String>,
+    cooldown_until: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+fn map_proxy_row(row: ProxyRow) -> ProxyResponse {
+    ProxyResponse {
+        id: row.id,
+        scheme: row.scheme,
+        host: row.host,
+        port: row.port,
+        username: row.username,
+        region: row.region,
+        country: row.country,
+        provider: row.provider,
+        status: row.status,
+        score: row.score,
+        success_count: row.success_count,
+        failure_count: row.failure_count,
+        last_checked_at: row.last_checked_at,
+        last_used_at: row.last_used_at,
+        cooldown_until: row.cooldown_until,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
     }
 }
 
@@ -273,12 +317,15 @@ pub async fn create_task(
         None
     };
 
+    let network_policy_value = payload.network_policy_json.clone();
+    let network_policy_json = network_policy_value.as_ref().map(|v| v.to_string());
     let input_json = serde_json::json!({
         "url": payload.url,
         "script": payload.script,
         "timeout_seconds": payload.timeout_seconds,
         "fingerprint_profile_id": payload.fingerprint_profile_id,
-        "fingerprint_profile_version": profile_version
+        "fingerprint_profile_version": profile_version,
+        "network_policy_json": network_policy_value
     })
     .to_string();
     let created_at = now_ts_string();
@@ -290,13 +337,14 @@ pub async fn create_task(
             id, kind, status, input_json, network_policy_json, fingerprint_profile_json,
             priority, created_at, queued_at, started_at, finished_at, fingerprint_profile_id,
             fingerprint_profile_version, result_json, error_message
-        ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL)
+        ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL)
         "#,
     )
     .bind(&task_id)
     .bind(&payload.kind)
     .bind(TASK_STATUS_QUEUED)
     .bind(&input_json)
+    .bind(&network_policy_json)
     .bind(priority)
     .bind(&created_at)
     .bind(&queued_at)
@@ -761,5 +809,59 @@ pub async fn get_fingerprint_profile(
             Ok(Json(FingerprintProfileResponse { id, name, version, status, tags_json, profile_json, validation_ok: validation.ok, validation_issues: validation.issues, created_at, updated_at }))
         }
         None => Err((StatusCode::NOT_FOUND, format!("fingerprint profile not found: {profile_id}"))),
+    }
+}
+
+
+pub async fn create_proxy(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateProxyRequest>,
+) -> Result<(StatusCode, Json<ProxyResponse>), (StatusCode, String)> {
+    if payload.id.trim().is_empty() || payload.scheme.trim().is_empty() || payload.host.trim().is_empty() || payload.port <= 0 {
+        return Err((StatusCode::BAD_REQUEST, "proxy id/scheme/host/port are required".to_string()));
+    }
+    let now = now_ts_string();
+    let status = payload.status.unwrap_or_else(|| "active".to_string());
+    let score = payload.score.unwrap_or(1.0);
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, NULL, ?, ?)"#)
+        .bind(&payload.id).bind(&payload.scheme).bind(&payload.host).bind(payload.port)
+        .bind(&payload.username).bind(&payload.password).bind(&payload.region).bind(&payload.country).bind(&payload.provider)
+        .bind(&status).bind(score).bind(&now).bind(&now)
+        .execute(&state.db).await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to create proxy: {err}")))?;
+    Ok((StatusCode::CREATED, Json(ProxyResponse {
+        id: payload.id, scheme: payload.scheme, host: payload.host, port: payload.port, username: payload.username,
+        region: payload.region, country: payload.country, provider: payload.provider, status, score, success_count: 0, failure_count: 0,
+        last_checked_at: None, last_used_at: None, cooldown_until: None, created_at: now.clone(), updated_at: now,
+    })))
+}
+
+pub async fn list_proxies(
+    State(state): State<AppState>,
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<Vec<ProxyResponse>>, (StatusCode, String)> {
+    let limit = sanitize_limit(query.limit, 20, 200);
+    let offset = sanitize_offset(query.offset);
+    let rows = sqlx::query_as::<_, ProxyRow>(r#"SELECT id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, created_at, updated_at FROM proxies ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"#)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to list proxies: {err}")))?;
+    Ok(Json(rows.into_iter().map(map_proxy_row).collect()))
+}
+
+pub async fn get_proxy(
+    State(state): State<AppState>,
+    Path(proxy_id): Path<String>,
+) -> Result<Json<ProxyResponse>, (StatusCode, String)> {
+    let row = sqlx::query_as::<_, ProxyRow>(r#"SELECT id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, created_at, updated_at FROM proxies WHERE id = ?"#)
+        .bind(&proxy_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to fetch proxy: {err}")))?;
+    match row {
+        Some(row) => Ok(Json(map_proxy_row(row))),
+        None => Err((StatusCode::NOT_FOUND, format!("proxy not found: {proxy_id}"))),
     }
 }

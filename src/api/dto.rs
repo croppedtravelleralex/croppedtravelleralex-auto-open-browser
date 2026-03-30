@@ -56,6 +56,7 @@ pub struct CreateTaskRequest {
     pub timeout_seconds: Option<i64>,
     pub priority: Option<i32>,
     pub fingerprint_profile_id: Option<String>,
+    pub network_policy_json: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +131,43 @@ pub struct FingerprintProfileResponse {
     pub profile_json: serde_json::Value,
     pub validation_ok: bool,
     pub validation_issues: Vec<crate::network_identity::validator::FingerprintValidationIssue>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateProxyRequest {
+    pub id: String,
+    pub scheme: String,
+    pub host: String,
+    pub port: i64,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub region: Option<String>,
+    pub country: Option<String>,
+    pub provider: Option<String>,
+    pub status: Option<String>,
+    pub score: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyResponse {
+    pub id: String,
+    pub scheme: String,
+    pub host: String,
+    pub port: i64,
+    pub username: Option<String>,
+    pub region: Option<String>,
+    pub country: Option<String>,
+    pub provider: Option<String>,
+    pub status: String,
+    pub score: f64,
+    pub success_count: i64,
+    pub failure_count: i64,
+    pub last_checked_at: Option<String>,
+    pub last_used_at: Option<String>,
+    pub cooldown_until: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

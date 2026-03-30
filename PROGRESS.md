@@ -117,6 +117,7 @@
 - **2026.3.30-23:00:00** 完成了 **DB-first claim / reclaim 参数化第一版**，新增 `AUTO_OPEN_BROWSER_RUNNER_HEARTBEAT_SECONDS` 与 `AUTO_OPEN_BROWSER_RUNNER_CLAIM_RETRY_LIMIT` 环境变量，claim 重试次数与 heartbeat 间隔不再写死；`/status.worker` 现在会返回 `reclaim_after_seconds / heartbeat_interval_seconds / claim_retry_limit` 这组运行参数。
 - **2026.3.30-23:09:00** 完成了 **DB-first claim / reclaim 并发收口第二版**，将 `claim_next_task()` 从“先查 candidate 再 update”推进为单条 `CTE + UPDATE ... RETURNING` 的原子抢占链，并为 worker 增加 idle exponential backoff；`/status.worker` 现在额外暴露 `idle_backoff_min_ms / idle_backoff_max_ms`。
 - **2026.3.30-23:12:00** 完成了 **DB-first claim / reclaim 并发收口第三版**，为 reclaim 增加 `runner_id IS NOT NULL` 安全条件，避免误回收半脏 running 记录；同时明确 `running` 状态下的 retry 返回 `409 CONFLICT`，并补齐对应回归测试。
+- **2026.3.30-23:25:00** 完成了 **代理池 V1 骨架 + 执行链代理解析第一版**，新增 `proxies` 表、`/proxies` 管理接口、`CreateTaskRequest.network_policy_json` 持久化，以及 runner 执行前基于 `proxy_id` 或 `region + min_score` 的最小代理解析；fake/lightpanda 的 `result_json` 已开始回显 `proxy`，Lightpanda 进程也会收到 `LIGHTPANDA_PROXY_*` 环境变量。
 
 ## 1. 已经实现 / 已经落地
 

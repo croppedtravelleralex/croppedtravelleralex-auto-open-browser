@@ -3,8 +3,9 @@ use axum::{middleware, routing::{get, post}, Router};
 use crate::app::state::AppState;
 
 use super::{auth::auth_middleware, handlers::{
-    cancel_task, create_fingerprint_profile, create_task, get_fingerprint_profile, get_task,
-    get_task_logs, get_task_runs, health, list_fingerprint_profiles, retry_task, status,
+    cancel_task, create_fingerprint_profile, create_proxy, create_task, get_fingerprint_profile,
+    get_proxy, get_task, get_task_logs, get_task_runs, health, list_fingerprint_profiles,
+    list_proxies, retry_task, status,
 }};
 
 pub fn build_router(state: AppState) -> Router {
@@ -13,7 +14,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/status", get(status))
         .route("/tasks", post(create_task))
         .route("/fingerprint-profiles", post(create_fingerprint_profile).get(list_fingerprint_profiles))
+        .route("/proxies", post(create_proxy).get(list_proxies))
         .route("/fingerprint-profiles/:id", get(get_fingerprint_profile))
+        .route("/proxies/:id", get(get_proxy))
         .route("/tasks/:id", get(get_task))
         .route("/tasks/:id/runs", get(get_task_runs))
         .route("/tasks/:id/logs", get(get_task_logs))

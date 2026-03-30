@@ -110,3 +110,10 @@
   - reclaim 增加 `runner_id IS NOT NULL` 安全条件
   - `running` 状态下 retry 明确返回 `409 CONFLICT`
   - 新增对应回归测试，当前调度边界更清晰
+
+- 代理池 V1 骨架已落地：
+  - `proxies` 表
+  - `/proxies` 创建/列表/详情接口
+  - `CreateTaskRequest.network_policy_json`
+  - runner 执行前最小代理解析（`proxy_id` / `region + min_score`）
+  - fake/lightpanda 结果回显 `proxy`，Lightpanda 注入 `LIGHTPANDA_PROXY_*` 环境变量

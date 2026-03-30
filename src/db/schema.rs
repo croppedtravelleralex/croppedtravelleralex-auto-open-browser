@@ -59,12 +59,13 @@ CREATE TABLE IF NOT EXISTS logs (
 );
 "#;
 
-pub const ALL_SCHEMA_SQL: [&str; 5] = [
+pub const ALL_SCHEMA_SQL: [&str; 6] = [
     CREATE_TASKS_TABLE_SQL,
     CREATE_RUNS_TABLE_SQL,
     CREATE_ARTIFACTS_TABLE_SQL,
     CREATE_LOGS_TABLE_SQL,
     CREATE_FINGERPRINT_PROFILES_TABLE_SQL,
+    CREATE_PROXIES_TABLE_SQL,
 ];
 
 
@@ -76,6 +77,30 @@ CREATE TABLE IF NOT EXISTS fingerprint_profiles (
     status TEXT NOT NULL DEFAULT 'active',
     tags_json TEXT,
     profile_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"#;
+
+
+pub const CREATE_PROXIES_TABLE_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS proxies (
+    id TEXT PRIMARY KEY,
+    scheme TEXT NOT NULL,
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    username TEXT,
+    password TEXT,
+    region TEXT,
+    country TEXT,
+    provider TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    score REAL NOT NULL DEFAULT 1.0,
+    success_count INTEGER NOT NULL DEFAULT 0,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    last_checked_at TEXT,
+    last_used_at TEXT,
+    cooldown_until TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );

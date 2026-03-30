@@ -985,3 +985,58 @@ async fn retry_flow_requeues_failed_fake_task() {
     assert_eq!(retry_status, StatusCode::OK);
     assert_eq!(retry_json.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_QUEUED));
 }
+
+
+#[tokio::test]
+async fn proxy_v1_create_list_and_get_work() {
+    let db_url = unique_db_url();
+    let (_state, app) = build_test_app(&db_url).await.expect("build app");
+
+    let payload = serde_json::json!({
+        "id": "proxy-us-1",
+        "scheme": "http",
+        "host": "127.0.0.1",
+        "port": 8080,
+        "region": "us-east",
+        "country": "US",
+        "provider": "manual",
+        "score": 0.95
+    });
+    let (create_status, create_body) = text_response(&app, Request::builder().method("POST").uri("/proxies").header("content-type", "application/json").body(Body::from(payload.to_string())).expect("request")).await;
+    assert_eq!(create_status, StatusCode::CREATED, "unexpected create body: {create_body}");
+    let create_json: Value = serde_json::from_str(&create_body).expect("create proxy json");
+    assert_eq!(create_json.get("id").and_then(|v| v.as_str()), Some("proxy-us-1"));
+
+    let (_, list_json) = json_response(&app, Request::builder().uri("/proxies?limit=10&offset=0").body(Body::empty()).expect("request")).await;
+    assert!(list_json.as_array().map(|a| !a.is_empty()).unwrap_or(false));
+
+    let (_, get_json) = json_response(&app, Request::builder().uri("/proxies/proxy-us-1").body(Body::empty()).expect("request")).await;
+    assert_eq!(get_json.get("region").and_then(|v| v.as_str()), Some("us-east"));
+    assert_eq!(get_json.get("provider").and_then(|v| v.as_str()), Some("manual"));
+}
+
+#[tokio::test]
+async fn create_task_persists_network_policy_json() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    let payload = serde_json::json!({
+        "kind": "open_page",
+        "url": "https://example.com",
+        "timeout_seconds": 5,
+        "network_policy_json": {
+            "mode": "required_proxy",
+            "region": "us-east",
+            "proxy_id": "proxy-us-1",
+            "min_score": 0.8
+        }
+    });
+    let (status, json) = json_response(&app, Request::builder().method("POST").uri("/tasks").header("content-type", "application/json").body(Body::from(payload.to_string())).expect("request")).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let task_id = json.get("id").and_then(|v| v.as_str()).expect("task id");
+
+    let stored: Option<String> = sqlx::query_scalar(r#"SELECT network_policy_json FROM tasks WHERE id = ?"#).bind(task_id).fetch_one(&state.db).await.expect("load task network policy");
+    let parsed: Value = serde_json::from_str(stored.as_deref().expect("network policy")).expect("parse network policy");
+    assert_eq!(parsed.get("mode").and_then(|v| v.as_str()), Some("required_proxy"));
+    assert_eq!(parsed.get("proxy_id").and_then(|v| v.as_str()), Some("proxy-us-1"));
+}
