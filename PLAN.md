@@ -117,3 +117,8 @@
   - `CreateTaskRequest.network_policy_json`
   - runner 执行前最小代理解析（`proxy_id` / `region + min_score`）
   - fake/lightpanda 结果回显 `proxy`，Lightpanda 注入 `LIGHTPANDA_PROXY_*` 环境变量
+
+- 代理健康回写第一版已落地：
+  - success -> `success_count + 1`，刷新 `last_used_at / last_checked_at / updated_at`
+  - failed -> `failure_count + 1`，写入短 `cooldown_until`
+  - timed_out -> `failure_count + 1`，写入更长 `cooldown_until`

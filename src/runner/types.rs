@@ -8,6 +8,21 @@ pub struct RunnerFingerprintProfile {
 }
 
 #[derive(Debug, Clone)]
+pub struct RunnerProxySelection {
+    pub id: String,
+    pub scheme: String,
+    pub host: String,
+    pub port: i64,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub region: Option<String>,
+    pub country: Option<String>,
+    pub provider: Option<String>,
+    pub score: f64,
+    pub resolution_status: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct RunnerTask {
     pub task_id: String,
     pub attempt: i64,
@@ -15,6 +30,7 @@ pub struct RunnerTask {
     pub payload: Value,
     pub timeout_seconds: Option<i64>,
     pub fingerprint_profile: Option<RunnerFingerprintProfile>,
+    pub proxy: Option<RunnerProxySelection>,
 }
 
 #[derive(Debug, Clone)]

@@ -560,6 +560,7 @@ mod tests {
                 payload,
                 timeout_seconds,
                 fingerprint_profile: None,
+                proxy: None,
             })
             .await;
         std::env::remove_var("LIGHTPANDA_BIN");
@@ -587,6 +588,7 @@ mod tests {
                     "unsupported_blob": {"x": 1}
                 }),
             }),
+            proxy: None,
         };
 
         let runtime = build_lightpanda_fingerprint_runtime(&task).expect("runtime");
@@ -627,6 +629,7 @@ exit 0",
                         "viewport_width": 1440
                     }),
                 }),
+                proxy: None,
             })
             .await;
         std::env::remove_var("LIGHTPANDA_BIN");

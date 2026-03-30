@@ -16,7 +16,8 @@ use crate::{
     },
     runner::{
         runner_claim_retry_limit_from_env, runner_heartbeat_interval_seconds_from_env,
-        RunnerFingerprintProfile, RunnerOutcomeStatus, RunnerTask, TaskRunner,
+        RunnerFingerprintProfile, RunnerOutcomeStatus, RunnerProxySelection, RunnerTask,
+        TaskRunner,
     },
 };
 
@@ -51,6 +52,64 @@ async fn insert_log(
     .bind(created_at)
     .execute(&state.db)
     .await?;
+    Ok(())
+}
+
+fn extract_proxy_selection(payload: &Value) -> Option<RunnerProxySelection> {
+    let policy = payload.get("network_policy_json")?;
+    let proxy_obj = policy.get("resolved_proxy")?;
+    Some(RunnerProxySelection {
+        id: proxy_obj.get("id")?.as_str()?.to_string(),
+        scheme: proxy_obj.get("scheme")?.as_str()?.to_string(),
+        host: proxy_obj.get("host")?.as_str()?.to_string(),
+        port: proxy_obj.get("port")?.as_i64()?,
+        username: proxy_obj.get("username").and_then(|v| v.as_str()).map(|v| v.to_string()),
+        password: proxy_obj.get("password").and_then(|v| v.as_str()).map(|v| v.to_string()),
+        region: proxy_obj.get("region").and_then(|v| v.as_str()).map(|v| v.to_string()),
+        country: proxy_obj.get("country").and_then(|v| v.as_str()).map(|v| v.to_string()),
+        provider: proxy_obj.get("provider").and_then(|v| v.as_str()).map(|v| v.to_string()),
+        score: proxy_obj.get("score").and_then(|v| v.as_f64()).unwrap_or(1.0),
+        resolution_status: policy.get("proxy_resolution_status").and_then(|v| v.as_str()).unwrap_or("resolved").to_string(),
+    })
+}
+
+async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) -> Result<()> {
+    let Some(policy) = payload.get_mut("network_policy_json") else { return Ok(()); };
+    let Some(policy_obj) = policy.as_object_mut() else { return Ok(()); };
+    let mode = policy_obj.get("mode").and_then(|v| v.as_str()).unwrap_or("direct");
+    if mode == "direct" {
+        policy_obj.insert("proxy_resolution_status".to_string(), json!("direct"));
+        return Ok(());
+    }
+    let row = if let Some(proxy_id) = policy_obj.get("proxy_id").and_then(|v| v.as_str()) {
+        sqlx::query_as::<_, (String, String, String, i64, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, f64)>(r#"SELECT id, scheme, host, port, username, password, region, country, provider, score FROM proxies WHERE id = ? AND status = 'active' LIMIT 1"#)
+            .bind(proxy_id).fetch_optional(&state.db).await?
+    } else {
+        let region = policy_obj.get("region").and_then(|v| v.as_str());
+        let min_score = policy_obj.get("min_score").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        sqlx::query_as::<_, (String, String, String, i64, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, f64)>(r#"SELECT id, scheme, host, port, username, password, region, country, provider, score FROM proxies WHERE status = 'active' AND (? IS NULL OR region = ?) AND score >= ? ORDER BY score DESC, created_at ASC LIMIT 1"#)
+            .bind(region).bind(region).bind(min_score).fetch_optional(&state.db).await?
+    };
+    if let Some((id, scheme, host, port, username, password, region, country, provider, score)) = row {
+        policy_obj.insert("proxy_resolution_status".to_string(), json!("resolved"));
+        policy_obj.insert("resolved_proxy".to_string(), json!({"id": id, "scheme": scheme, "host": host, "port": port, "username": username, "password": password, "region": region, "country": country, "provider": provider, "score": score}));
+    } else {
+        policy_obj.insert("proxy_resolution_status".to_string(), json!("unresolved"));
+    }
+    Ok(())
+}
+
+async fn update_proxy_health_after_execution(state: &AppState, proxy: Option<&RunnerProxySelection>, execution_status: RunnerOutcomeStatus) -> Result<()> {
+    let Some(proxy) = proxy else { return Ok(()); };
+    let now = now_ts_string();
+    let (success_inc, failure_inc, cooldown_until): (i64, i64, Option<String>) = match execution_status {
+        RunnerOutcomeStatus::Succeeded => (1, 0, None),
+        RunnerOutcomeStatus::Failed => (0, 1, Some((now.parse::<u64>().unwrap_or(0) + 60).to_string())),
+        RunnerOutcomeStatus::TimedOut => (0, 1, Some((now.parse::<u64>().unwrap_or(0) + 180).to_string())),
+    };
+    sqlx::query(r#"UPDATE proxies SET success_count = success_count + ?, failure_count = failure_count + ?, last_used_at = ?, last_checked_at = ?, cooldown_until = ?, updated_at = ? WHERE id = ?"#)
+        .bind(success_inc).bind(failure_inc).bind(&now).bind(&now).bind(&cooldown_until).bind(&now).bind(&proxy.id)
+        .execute(&state.db).await?;
     Ok(())
 }
 
@@ -331,16 +390,19 @@ where
         _ => {}
     }
 
-    let payload: Value = serde_json::from_str(&input_json).unwrap_or_else(|_| {
+    let mut payload: Value = serde_json::from_str(&input_json).unwrap_or_else(|_| {
         json!({
             "raw_input_json": input_json,
         })
     });
+    resolve_network_policy_for_task(state, &mut payload).await?;
+    let proxy = extract_proxy_selection(&payload);
     let timeout_seconds = payload
         .get("timeout_seconds")
         .and_then(|value| value.as_i64())
         .filter(|value| *value > 0);
 
+    let proxy_for_health = proxy.clone();
     let execution = runner
         .execute(RunnerTask {
             task_id: task_id.clone(),
@@ -349,11 +411,14 @@ where
             payload,
             timeout_seconds,
             fingerprint_profile,
+            proxy,
         })
         .await;
 
     let _ = heartbeat_stop.send(());
     let _ = heartbeat_handle.await;
+
+    update_proxy_health_after_execution(state, proxy_for_health.as_ref(), execution.status).await?;
 
     let finished_at = now_ts_string();
 

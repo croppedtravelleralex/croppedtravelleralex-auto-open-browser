@@ -1040,3 +1040,71 @@ async fn create_task_persists_network_policy_json() {
     assert_eq!(parsed.get("mode").and_then(|v| v.as_str()), Some("required_proxy"));
     assert_eq!(parsed.get("proxy_id").and_then(|v| v.as_str()), Some("proxy-us-1"));
 }
+
+#[tokio::test]
+async fn proxy_health_is_updated_after_success_and_timeout() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, created_at, updated_at) VALUES ('proxy-health-1', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'manual', 'active', 0.95, 0, 0, NULL, NULL, NULL, '1', '1')"#)
+        .execute(&state.db)
+        .await
+        .expect("insert proxy");
+
+    let success_payload = serde_json::json!({
+        "kind": "open_page",
+        "url": "https://example.com",
+        "timeout_seconds": 5,
+        "network_policy_json": {"mode": "required_proxy", "proxy_id": "proxy-health-1"}
+    });
+    let (_, success_json) = json_response(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/tasks")
+            .header("content-type", "application/json")
+            .body(Body::from(success_payload.to_string()))
+            .expect("request"),
+    )
+    .await;
+    let success_task_id = success_json.get("id").and_then(|v| v.as_str()).expect("task id").to_string();
+    let _ = wait_for_terminal_status(&app, &success_task_id).await;
+
+    let (success_count, failure_count, last_used_at, cooldown_until): (i64, i64, Option<String>, Option<String>) =
+        sqlx::query_as(r#"SELECT success_count, failure_count, last_used_at, cooldown_until FROM proxies WHERE id = 'proxy-health-1'"#)
+            .fetch_one(&state.db)
+            .await
+            .expect("load proxy after success");
+    assert_eq!(success_count, 1);
+    assert_eq!(failure_count, 0);
+    assert!(last_used_at.is_some());
+    assert!(cooldown_until.is_none());
+
+    let timeout_payload = serde_json::json!({
+        "kind": "timeout",
+        "url": "https://example.com",
+        "timeout_seconds": 5,
+        "network_policy_json": {"mode": "required_proxy", "proxy_id": "proxy-health-1"}
+    });
+    let (_, timeout_json) = json_response(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/tasks")
+            .header("content-type", "application/json")
+            .body(Body::from(timeout_payload.to_string()))
+            .expect("request"),
+    )
+    .await;
+    let timeout_task_id = timeout_json.get("id").and_then(|v| v.as_str()).expect("task id").to_string();
+    let _ = wait_for_terminal_status(&app, &timeout_task_id).await;
+
+    let (success_count2, failure_count2, cooldown_until2): (i64, i64, Option<String>) =
+        sqlx::query_as(r#"SELECT success_count, failure_count, cooldown_until FROM proxies WHERE id = 'proxy-health-1'"#)
+            .fetch_one(&state.db)
+            .await
+            .expect("load proxy after timeout");
+    assert_eq!(success_count2, 1);
+    assert_eq!(failure_count2, 1);
+    assert!(cooldown_until2.is_some());
+}

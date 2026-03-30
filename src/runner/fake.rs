@@ -124,6 +124,7 @@ mod tests {
             payload: json!({"url": "https://example.com", "foo": "bar"}),
             timeout_seconds: Some(7),
             fingerprint_profile: None,
+            proxy: None,
         };
 
         let result = runner.execute(task.clone()).await;
@@ -156,6 +157,7 @@ mod tests {
             payload: json!({"url": "https://example.com"}),
             timeout_seconds: Some(3),
             fingerprint_profile: None,
+            proxy: None,
         };
 
         let result = runner.execute(task).await;

@@ -32,8 +32,8 @@
 
 ## 当前下一步
 
-1. **做代理健康回写**
-2. **补代理选择策略（provider / sticky session / cooldown）**
+1. **补代理选择策略（provider / sticky session / cooldown）**
+2. **把代理命中/健康状态暴露到接口**
 3. **继续细化 lease TTL / reclaim 策略与 worker 退避**
 4. **让内存队列进一步降级为唤醒/提示层，而不再参与执行真相判断**
 5. **继续清理 worker loop、claim SQL 与状态机边界**
@@ -59,3 +59,5 @@
 - **DB-first claim / reclaim 并发收口第三版已落地**，当前 reclaim 不会再误回收没有 `runner_id` 的半脏 running 任务，`running` 状态下的 retry 也已收口为明确的 `409 CONFLICT`；调度内核的一致性比前几轮明显更稳。
 
 - **代理池 V1 骨架已落地**，当前已具备 `proxies` 管理接口、任务级 `network_policy_json` 持久化，以及 runner 执行前的最小代理解析能力；但健康回写、冷却、粘性会话与更细粒度选择策略仍未完成。
+
+- **代理健康回写第一版已落地**，当前执行链会按成功/失败/超时更新代理的成功计数、失败计数、最近使用时间、最近检查时间与冷却截止时间；但冷却时长、评分衰减、provider/sticky 选择仍较粗糙。
