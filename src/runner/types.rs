@@ -1,12 +1,20 @@
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
+pub struct RunnerFingerprintProfile {
+    pub id: String,
+    pub version: i64,
+    pub profile_json: Value,
+}
+
+#[derive(Debug, Clone)]
 pub struct RunnerTask {
     pub task_id: String,
     pub attempt: i64,
     pub kind: String,
     pub payload: Value,
     pub timeout_seconds: Option<i64>,
+    pub fingerprint_profile: Option<RunnerFingerprintProfile>,
 }
 
 #[derive(Debug, Clone)]

@@ -52,6 +52,7 @@ pub struct TaskInput {
     pub url: Option<String>,
     pub script: Option<String>,
     pub metadata_json: Option<String>,
+    pub fingerprint_profile_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,5 +62,7 @@ pub struct Task {
     pub status: TaskStatus,
     pub priority: i32,
     pub input: TaskInput,
+    pub fingerprint_profile_id: Option<String>,
+    pub fingerprint_profile_version: Option<i64>,
     pub created_at: String,
 }

@@ -25,6 +25,12 @@ fn result_payload(
         .timeout_seconds
         .and_then(|value| u64::try_from(value).ok());
 
+    let fingerprint_profile = task.fingerprint_profile.as_ref().map(|profile| json!({
+        "id": profile.id,
+        "version": profile.version,
+        "profile": profile.profile_json,
+    }));
+
     json!({
         "runner": "fake",
         "action": "simulate",
@@ -37,6 +43,7 @@ fn result_payload(
         "payload": task.payload,
         "url": url,
         "timeout_seconds": timeout_seconds,
+        "fingerprint_profile": fingerprint_profile,
         "bin": Value::Null,
         "exit_code": Value::Null,
         "stdout_preview": Value::Null,
@@ -116,6 +123,7 @@ mod tests {
             kind: "open_page".to_string(),
             payload: json!({"url": "https://example.com", "foo": "bar"}),
             timeout_seconds: Some(7),
+            fingerprint_profile: None,
         };
 
         let result = runner.execute(task.clone()).await;
@@ -147,6 +155,7 @@ mod tests {
             kind: "timeout".to_string(),
             payload: json!({"url": "https://example.com"}),
             timeout_seconds: Some(3),
+            fingerprint_profile: None,
         };
 
         let result = runner.execute(task).await;

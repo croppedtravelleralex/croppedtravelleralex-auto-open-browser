@@ -14,7 +14,7 @@ use crate::{
             TASK_STATUS_SUCCEEDED, TASK_STATUS_TIMED_OUT,
         },
     },
-    runner::{RunnerOutcomeStatus, RunnerTask, TaskRunner},
+    runner::{RunnerFingerprintProfile, RunnerOutcomeStatus, RunnerTask, TaskRunner},
 };
 
 fn now_ts_string() -> String {
@@ -57,6 +57,7 @@ struct ClaimedTask {
     task_id: String,
     task_kind: String,
     input_json: String,
+    fingerprint_profile: Option<RunnerFingerprintProfile>,
     attempt: i64,
     run_id: String,
     started_at: String,
@@ -67,12 +68,16 @@ where
     R: TaskRunner + ?Sized,
 {
     for _ in 0..8 {
-        let candidate = sqlx::query_as::<_, (String, String, String)>(
+        let candidate = sqlx::query_as::<_, (String, String, String, Option<String>, Option<i64>, Option<String>)>(
             r#"
-            SELECT id, kind, input_json
-            FROM tasks
-            WHERE status = ?
-            ORDER BY priority DESC, COALESCE(queued_at, created_at) ASC, created_at ASC
+            SELECT t.id, t.kind, t.input_json, t.fingerprint_profile_id, t.fingerprint_profile_version, fp.profile_json
+            FROM tasks t
+            LEFT JOIN fingerprint_profiles fp
+              ON fp.id = t.fingerprint_profile_id
+             AND fp.status = 'active'
+             AND fp.version = t.fingerprint_profile_version
+            WHERE t.status = ?
+            ORDER BY t.priority DESC, COALESCE(t.queued_at, t.created_at) ASC, t.created_at ASC
             LIMIT 1
             "#,
         )
@@ -80,7 +85,7 @@ where
         .fetch_optional(&state.db)
         .await?;
 
-        let Some((task_id, task_kind, input_json)) = candidate else {
+        let Some((task_id, task_kind, input_json, fingerprint_profile_id, fingerprint_profile_version, fingerprint_profile_json)) = candidate else {
             return Ok(None);
         };
 
@@ -128,10 +133,18 @@ where
 
         tx.commit().await?;
 
+        let fingerprint_profile = match (fingerprint_profile_id, fingerprint_profile_version, fingerprint_profile_json) {
+            (Some(id), Some(version), Some(profile_json)) => serde_json::from_str(&profile_json)
+                .ok()
+                .map(|profile_json| RunnerFingerprintProfile { id, version, profile_json }),
+            _ => None,
+        };
+
         return Ok(Some(ClaimedTask {
             task_id,
             task_kind,
             input_json,
+            fingerprint_profile,
             attempt,
             run_id,
             started_at,
@@ -246,6 +259,7 @@ where
     let task_kind = claimed.task_kind;
     let input_json = claimed.input_json;
     let attempt = claimed.attempt;
+    let fingerprint_profile = claimed.fingerprint_profile;
     let run_id = claimed.run_id;
     let _started_at = claimed.started_at;
     let (heartbeat_stop, heartbeat_handle) = spawn_task_heartbeat(state.clone(), task_id.clone(), worker_label.to_string());
@@ -287,6 +301,7 @@ where
             kind: task_kind,
             payload,
             timeout_seconds,
+            fingerprint_profile,
         })
         .await;
 

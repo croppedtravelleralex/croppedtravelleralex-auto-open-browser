@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use crate::{
+    network_identity::validator::validate_fingerprint_profile,
     app::state::AppState,
     domain::{
         run::{RUN_STATUS_CANCELLED, RUN_STATUS_RUNNING},
@@ -18,8 +19,10 @@ use crate::{
 };
 
 use super::dto::{
-    CancelTaskResponse, CreateTaskRequest, HealthResponse, LogResponse, PaginationQuery,
+    CancelTaskResponse, CreateFingerprintProfileRequest, CreateTaskRequest,
+    FingerprintProfileResponse, HealthResponse, LogResponse, PaginationQuery,
     RetryTaskResponse, RunResponse, StatusResponse, TaskResponse, TaskStatusCounts,
+    WorkerStatusResponse,
 };
 
 fn now_ts_string() -> String {
@@ -136,8 +139,8 @@ pub async fn status(
     let counts = load_counts(&state).await?;
     let limit = sanitize_limit(query.limit, 5, 100);
     let offset = sanitize_offset(query.offset);
-    let rows = sqlx::query_as::<_, (String, String, String, i32)>(
-        r#"SELECT id, kind, status, priority FROM tasks ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"#,
+    let rows = sqlx::query_as::<_, (String, String, String, i32, Option<String>, Option<i64>)>(
+        r#"SELECT id, kind, status, priority, fingerprint_profile_id, fingerprint_profile_version FROM tasks ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"#,
     )
     .bind(limit)
     .bind(offset)
@@ -152,11 +155,13 @@ pub async fn status(
 
     let latest_tasks = rows
         .into_iter()
-        .map(|(id, kind, status, priority)| TaskResponse {
+        .map(|(id, kind, status, priority, fingerprint_profile_id, fingerprint_profile_version)| TaskResponse {
             id,
             kind,
             status,
             priority,
+            fingerprint_profile_id,
+            fingerprint_profile_version,
         })
         .collect();
 
@@ -164,6 +169,11 @@ pub async fn status(
         service: "AutoOpenBrowser".to_string(),
         queue_len: counts.queued as usize,
         counts,
+        worker: WorkerStatusResponse {
+            worker_count: state.worker_count,
+            queue_mode: "db_first_with_memory_compat".to_string(),
+            reclaim_after_seconds: crate::runner::runner_reclaim_seconds_from_env(),
+        },
         latest_tasks,
     }))
 }
@@ -178,10 +188,26 @@ pub async fn create_task(
 
     let task_id = format!("task-{}", Uuid::new_v4());
     let priority = payload.priority.unwrap_or(0);
+    let profile_version = if let Some(profile_id) = payload.fingerprint_profile_id.as_deref() {
+        let version = sqlx::query_scalar::<_, i64>(r#"SELECT version FROM fingerprint_profiles WHERE id = ? AND status = 'active'"#)
+            .bind(profile_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to resolve fingerprint profile version: {err}")))?;
+        if version.is_none() {
+            return Err((StatusCode::BAD_REQUEST, "fingerprint profile not found or inactive".to_string()));
+        }
+        version
+    } else {
+        None
+    };
+
     let input_json = serde_json::json!({
         "url": payload.url,
         "script": payload.script,
-        "timeout_seconds": payload.timeout_seconds
+        "timeout_seconds": payload.timeout_seconds,
+        "fingerprint_profile_id": payload.fingerprint_profile_id,
+        "fingerprint_profile_version": profile_version
     })
     .to_string();
     let created_at = now_ts_string();
@@ -191,8 +217,9 @@ pub async fn create_task(
         r#"
         INSERT INTO tasks (
             id, kind, status, input_json, network_policy_json, fingerprint_profile_json,
-            priority, created_at, queued_at, started_at, finished_at, result_json, error_message
-        ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL, NULL, NULL, NULL)
+            priority, created_at, queued_at, started_at, finished_at, fingerprint_profile_id,
+            fingerprint_profile_version, result_json, error_message
+        ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL)
         "#,
     )
     .bind(&task_id)
@@ -202,6 +229,8 @@ pub async fn create_task(
     .bind(priority)
     .bind(&created_at)
     .bind(&queued_at)
+    .bind(&payload.fingerprint_profile_id)
+    .bind(profile_version)
     .execute(&state.db)
     .await
     .map_err(|err| {
@@ -219,6 +248,8 @@ pub async fn create_task(
             kind: payload.kind,
             status: TASK_STATUS_QUEUED.to_string(),
             priority,
+            fingerprint_profile_id: payload.fingerprint_profile_id,
+            fingerprint_profile_version: profile_version,
         }),
     ))
 }
@@ -231,8 +262,8 @@ pub async fn get_task(
         return Err((StatusCode::BAD_REQUEST, "task id is required".to_string()));
     }
 
-    let row = sqlx::query_as::<_, (String, String, String, i32)>(
-        r#"SELECT id, kind, status, priority FROM tasks WHERE id = ?"#,
+    let row = sqlx::query_as::<_, (String, String, String, i32, Option<String>, Option<i64>)>(
+        r#"SELECT id, kind, status, priority, fingerprint_profile_id, fingerprint_profile_version FROM tasks WHERE id = ?"#,
     )
     .bind(&task_id)
     .fetch_optional(&state.db)
@@ -245,11 +276,13 @@ pub async fn get_task(
     })?;
 
     match row {
-        Some((id, kind, status, priority)) => Ok(Json(TaskResponse {
+        Some((id, kind, status, priority, fingerprint_profile_id, fingerprint_profile_version)) => Ok(Json(TaskResponse {
             id,
             kind,
             status,
             priority,
+            fingerprint_profile_id,
+            fingerprint_profile_version,
         })),
         None => Err((StatusCode::NOT_FOUND, format!("task not found: {task_id}"))),
     }
@@ -560,4 +593,96 @@ pub async fn cancel_task(
         StatusCode::BAD_REQUEST,
         format!("task status does not allow cancel: {status}"),
     ))
+}
+
+
+pub async fn create_fingerprint_profile(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateFingerprintProfileRequest>,
+) -> Result<(StatusCode, Json<FingerprintProfileResponse>), (StatusCode, String)> {
+    if payload.id.trim().is_empty() || payload.name.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "fingerprint profile id and name are required".to_string()));
+    }
+
+    let validation = validate_fingerprint_profile(&payload.profile_json);
+    let now = now_ts_string();
+    let profile_json = payload.profile_json.to_string();
+
+    sqlx::query(
+        r#"
+        INSERT INTO fingerprint_profiles (id, name, version, status, tags_json, profile_json, created_at, updated_at)
+        VALUES (?, ?, 1, 'active', ?, ?, ?, ?)
+        "#,
+    )
+    .bind(&payload.id)
+    .bind(&payload.name)
+    .bind(&payload.tags_json)
+    .bind(&profile_json)
+    .bind(&now)
+    .bind(&now)
+    .execute(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to create fingerprint profile: {err}")))?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(FingerprintProfileResponse {
+            id: payload.id,
+            name: payload.name,
+            version: 1,
+            status: "active".to_string(),
+            tags_json: payload.tags_json,
+            profile_json: payload.profile_json,
+            validation_ok: validation.ok,
+            validation_issues: validation.issues,
+            created_at: now.clone(),
+            updated_at: now,
+        }),
+    ))
+}
+
+pub async fn list_fingerprint_profiles(
+    State(state): State<AppState>,
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<Vec<FingerprintProfileResponse>>, (StatusCode, String)> {
+    let limit = sanitize_limit(query.limit, 20, 200);
+    let offset = sanitize_offset(query.offset);
+    let rows = sqlx::query_as::<_, (String, String, i64, String, Option<String>, String, String, String)>(
+        r#"SELECT id, name, version, status, tags_json, profile_json, created_at, updated_at FROM fingerprint_profiles ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"#,
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to list fingerprint profiles: {err}")))?;
+
+    let items = rows.into_iter().map(|(id, name, version, status, tags_json, profile_json, created_at, updated_at)| {
+        let profile_json = serde_json::from_str(&profile_json).unwrap_or_else(|_| serde_json::json!({}));
+        let validation = validate_fingerprint_profile(&profile_json);
+        FingerprintProfileResponse { id, name, version, status, tags_json, profile_json, validation_ok: validation.ok, validation_issues: validation.issues, created_at, updated_at }
+    }).collect();
+
+    Ok(Json(items))
+}
+
+pub async fn get_fingerprint_profile(
+    State(state): State<AppState>,
+    Path(profile_id): Path<String>,
+) -> Result<Json<FingerprintProfileResponse>, (StatusCode, String)> {
+    let row = sqlx::query_as::<_, (String, String, i64, String, Option<String>, String, String, String)>(
+        r#"SELECT id, name, version, status, tags_json, profile_json, created_at, updated_at FROM fingerprint_profiles WHERE id = ?"#,
+    )
+    .bind(&profile_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to fetch fingerprint profile: {err}")))?;
+
+    match row {
+        Some((id, name, version, status, tags_json, profile_json, created_at, updated_at)) => {
+            let profile_json = serde_json::from_str(&profile_json).unwrap_or_else(|_| serde_json::json!({}));
+            let validation = validate_fingerprint_profile(&profile_json);
+            Ok(Json(FingerprintProfileResponse { id, name, version, status, tags_json, profile_json, validation_ok: validation.ok, validation_issues: validation.issues, created_at, updated_at }))
+        }
+        None => Err((StatusCode::NOT_FOUND, format!("fingerprint profile not found: {profile_id}"))),
+    }
 }

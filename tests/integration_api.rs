@@ -32,6 +32,16 @@ async fn json_response(app: &axum::Router, request: Request<Body>) -> (StatusCod
     (status, json)
 }
 
+async fn text_response(app: &axum::Router, request: Request<Body>) -> (StatusCode, String) {
+    let response = app.clone().oneshot(request).await.expect("request should succeed");
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let text = String::from_utf8(body.to_vec()).expect("utf8 body");
+    (status, text)
+}
+
 async fn create_task(app: &axum::Router, kind: &str) -> String {
     let payload = serde_json::json!({
         "kind": kind,
@@ -72,6 +82,192 @@ async fn wait_for_terminal_status(app: &axum::Router, task_id: &str) -> Value {
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
     panic!("task did not reach terminal status in time");
+}
+
+#[tokio::test]
+async fn task_with_fingerprint_profile_is_injected_into_runner_result() {
+    let db_url = unique_db_url();
+    let (_state, app) = build_test_app(&db_url).await.expect("build app");
+
+    let profile_payload = serde_json::json!({
+        "id": "fp-desktop-chrome",
+        "name": "Desktop Chrome",
+        "profile_json": {
+            "browser": {"name": "chrome", "version": "123"},
+            "os": {"name": "macos", "version": "14.4"},
+            "headers": {"accept_language": "en-US,en;q=0.9"}
+        }
+    });
+
+    let (profile_status, _profile_json) = json_response(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/fingerprint-profiles")
+            .header("content-type", "application/json")
+            .body(Body::from(profile_payload.to_string()))
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(profile_status, StatusCode::CREATED);
+
+    let payload = serde_json::json!({
+        "kind": "open_page",
+        "url": "https://example.com",
+        "timeout_seconds": 5,
+        "fingerprint_profile_id": "fp-desktop-chrome"
+    });
+    let (status, json) = json_response(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/tasks")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let task_id = json.get("id").and_then(|v| v.as_str()).expect("task id").to_string();
+
+    let _task = wait_for_terminal_status(&app, &task_id).await;
+
+    let (result_json_text, fp_id, fp_version): (Option<String>, Option<String>, Option<i64>) = sqlx::query_as(
+        r#"SELECT result_json, fingerprint_profile_id, fingerprint_profile_version FROM tasks WHERE id = ?"#,
+    )
+    .bind(&task_id)
+    .fetch_one(&_state.db)
+    .await
+    .expect("load task result");
+
+    assert_eq!(fp_id.as_deref(), Some("fp-desktop-chrome"));
+    assert_eq!(fp_version, Some(1));
+
+    let result_json: Value = serde_json::from_str(result_json_text.as_deref().expect("result json")).expect("parse result json");
+    let fingerprint = result_json.get("fingerprint_profile").expect("fingerprint profile in runner result");
+    assert_eq!(fingerprint.get("id").and_then(|v| v.as_str()), Some("fp-desktop-chrome"));
+    assert_eq!(fingerprint.get("version").and_then(|v| v.as_i64()), Some(1));
+    assert_eq!(
+        fingerprint
+            .get("profile")
+            .and_then(|v| v.get("browser"))
+            .and_then(|v| v.get("name"))
+            .and_then(|v| v.as_str()),
+        Some("chrome")
+    );
+}
+
+#[tokio::test]
+async fn task_with_missing_fingerprint_profile_runs_without_injected_profile() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    let task_id = "task-missing-fingerprint-profile".to_string();
+    sqlx::query(
+        r#"INSERT INTO tasks (
+            id, kind, status, input_json, network_policy_json, fingerprint_profile_json,
+            priority, created_at, queued_at, started_at, finished_at, runner_id, heartbeat_at,
+            fingerprint_profile_id, fingerprint_profile_version, result_json, error_message
+        ) VALUES (?, 'open_page', ?, '{"url":"https://example.com","timeout_seconds":5}', NULL, NULL,
+                  0, '1', '1', NULL, NULL, NULL, NULL, 'fp-missing', 7, NULL, NULL)"#,
+    )
+    .bind(&task_id)
+    .bind(TASK_STATUS_QUEUED)
+    .execute(&state.db)
+    .await
+    .expect("insert queued task with missing profile");
+
+    let _task = wait_for_terminal_status(&app, &task_id).await;
+
+    let (result_json_text, fp_id, fp_version): (Option<String>, Option<String>, Option<i64>) = sqlx::query_as(
+        r#"SELECT result_json, fingerprint_profile_id, fingerprint_profile_version FROM tasks WHERE id = ?"#,
+    )
+    .bind(&task_id)
+    .fetch_one(&state.db)
+    .await
+    .expect("load task result");
+
+    assert_eq!(fp_id.as_deref(), Some("fp-missing"));
+    assert_eq!(fp_version, Some(7));
+
+    let result_json: Value = serde_json::from_str(result_json_text.as_deref().expect("result json")).expect("parse result json");
+    assert!(result_json.get("fingerprint_profile").unwrap_or(&Value::Null).is_null());
+}
+
+#[tokio::test]
+async fn inactive_fingerprint_profile_is_rejected_at_task_creation() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    sqlx::query(
+        r#"INSERT INTO fingerprint_profiles (id, name, version, status, tags_json, profile_json, created_at, updated_at)
+           VALUES ('fp-inactive', 'Inactive', 3, 'inactive', NULL, '{"browser":{"name":"chrome"}}', '1', '1')"#,
+    )
+    .execute(&state.db)
+    .await
+    .expect("insert inactive fingerprint profile");
+
+    let payload = serde_json::json!({
+        "kind": "open_page",
+        "url": "https://example.com",
+        "timeout_seconds": 5,
+        "fingerprint_profile_id": "fp-inactive"
+    });
+    let (status, body) = text_response(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/tasks")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .expect("request"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("fingerprint profile not found or inactive"), "unexpected body: {body:?}");
+}
+
+#[tokio::test]
+async fn task_with_stale_fingerprint_profile_version_runs_without_injected_profile() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    sqlx::query(
+        r#"INSERT INTO fingerprint_profiles (id, name, version, status, tags_json, profile_json, created_at, updated_at)
+           VALUES ('fp-stale', 'Stale', 2, 'active', NULL, '{"browser":{"name":"chrome","version":"124"}}', '1', '1')"#,
+    )
+    .execute(&state.db)
+    .await
+    .expect("insert active fingerprint profile");
+
+    let task_id = "task-stale-fingerprint-version".to_string();
+    sqlx::query(
+        r#"INSERT INTO tasks (
+            id, kind, status, input_json, network_policy_json, fingerprint_profile_json,
+            priority, created_at, queued_at, started_at, finished_at, runner_id, heartbeat_at,
+            fingerprint_profile_id, fingerprint_profile_version, result_json, error_message
+        ) VALUES (?, 'open_page', ?, '{"url":"https://example.com","timeout_seconds":5}', NULL, NULL,
+                  0, '1', '1', NULL, NULL, NULL, NULL, 'fp-stale', 1, NULL, NULL)"#,
+    )
+    .bind(&task_id)
+    .bind(TASK_STATUS_QUEUED)
+    .execute(&state.db)
+    .await
+    .expect("insert queued task with stale profile version");
+
+    let _task = wait_for_terminal_status(&app, &task_id).await;
+
+    let result_json_text: Option<String> = sqlx::query_scalar(
+        r#"SELECT result_json FROM tasks WHERE id = ?"#,
+    )
+    .bind(&task_id)
+    .fetch_one(&state.db)
+    .await
+    .expect("load task result");
+
+    let result_json: Value = serde_json::from_str(result_json_text.as_deref().expect("result json")).expect("parse result json");
+    assert!(result_json.get("fingerprint_profile").unwrap_or(&Value::Null).is_null());
 }
 
 #[tokio::test]

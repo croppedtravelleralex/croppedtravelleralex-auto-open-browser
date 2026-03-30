@@ -9,8 +9,8 @@ use async_trait::async_trait;
 
 use crate::app::state::AppState;
 pub use types::{
-    RunnerCancelResult, RunnerCapabilities, RunnerExecutionResult, RunnerOutcomeStatus,
-    RunnerTask,
+    RunnerCancelResult, RunnerCapabilities, RunnerExecutionResult, RunnerFingerprintProfile,
+    RunnerOutcomeStatus, RunnerTask,
 };
 
 #[derive(Debug, Clone, Copy)]

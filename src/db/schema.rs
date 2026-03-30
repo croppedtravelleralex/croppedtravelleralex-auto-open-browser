@@ -59,9 +59,24 @@ CREATE TABLE IF NOT EXISTS logs (
 );
 "#;
 
-pub const ALL_SCHEMA_SQL: [&str; 4] = [
+pub const ALL_SCHEMA_SQL: [&str; 5] = [
     CREATE_TASKS_TABLE_SQL,
     CREATE_RUNS_TABLE_SQL,
     CREATE_ARTIFACTS_TABLE_SQL,
     CREATE_LOGS_TABLE_SQL,
+    CREATE_FINGERPRINT_PROFILES_TABLE_SQL,
 ];
+
+
+pub const CREATE_FINGERPRINT_PROFILES_TABLE_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS fingerprint_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'active',
+    tags_json TEXT,
+    profile_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"#;

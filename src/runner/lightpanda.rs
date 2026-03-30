@@ -38,6 +38,12 @@ fn result_payload(
     stderr_preview: Option<String>,
     message: &str,
 ) -> Value {
+    let fingerprint_profile = task.fingerprint_profile.as_ref().map(|profile| json!({
+        "id": profile.id,
+        "version": profile.version,
+        "profile": profile.profile_json,
+    }));
+
     json!({
         "runner": "lightpanda",
         "action": "open_page",
@@ -50,6 +56,7 @@ fn result_payload(
         "payload": task.payload,
         "url": url,
         "timeout_seconds": timeout_seconds,
+        "fingerprint_profile": fingerprint_profile,
         "bin": bin,
         "exit_code": exit_code,
         "stdout_preview": stdout_preview,
@@ -429,6 +436,7 @@ mod tests {
                 kind: "open_page".to_string(),
                 payload,
                 timeout_seconds,
+                fingerprint_profile: None,
             })
             .await;
         std::env::remove_var("LIGHTPANDA_BIN");

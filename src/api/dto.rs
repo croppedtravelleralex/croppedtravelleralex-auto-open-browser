@@ -20,10 +20,18 @@ pub struct HealthResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerStatusResponse {
+    pub worker_count: usize,
+    pub queue_mode: String,
+    pub reclaim_after_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusResponse {
     pub service: String,
     pub queue_len: usize,
     pub counts: TaskStatusCounts,
+    pub worker: WorkerStatusResponse,
     pub latest_tasks: Vec<TaskResponse>,
 }
 
@@ -34,6 +42,7 @@ pub struct CreateTaskRequest {
     pub script: Option<String>,
     pub timeout_seconds: Option<i64>,
     pub priority: Option<i32>,
+    pub fingerprint_profile_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +71,8 @@ pub struct TaskResponse {
     pub kind: String,
     pub status: String,
     pub priority: i32,
+    pub fingerprint_profile_id: Option<String>,
+    pub fingerprint_profile_version: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,4 +95,27 @@ pub struct LogResponse {
     pub level: String,
     pub message: String,
     pub created_at: String,
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateFingerprintProfileRequest {
+    pub id: String,
+    pub name: String,
+    pub tags_json: Option<String>,
+    pub profile_json: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FingerprintProfileResponse {
+    pub id: String,
+    pub name: String,
+    pub version: i64,
+    pub status: String,
+    pub tags_json: Option<String>,
+    pub profile_json: serde_json::Value,
+    pub validation_ok: bool,
+    pub validation_issues: Vec<crate::network_identity::validator::FingerprintValidationIssue>,
+    pub created_at: String,
+    pub updated_at: String,
 }

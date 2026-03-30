@@ -106,6 +106,15 @@
 
 - **2026.3.28-19:56:00** 完成了 **db init warning 清理第一轮**，移除 `src/db/init.rs` 中已无实际用途的 `ConnectOptions` 导入，并再次通过测试验证当前代码处于可编译、可测试状态。
 
+- **2026.3.29-21:58:00** 完成了 **并发运行态可观测性补强第一轮**，为 `GET /status` 增加 `worker_count / queue_mode / reclaim_after_seconds` 摘要，让多 worker 与 reclaim 配置从“仅启动日志可见”推进到“API 面可见”，为后续 durable queue 与性能优化提供控制面观测基础。
+- **2026.3.29-22:03:00** 完成了 **浏览器指纹能力边界设计第一版**，新增 `FINGERPRINT_BOUNDARY.md`，将指纹能力拆成声明层 / 注入层 / 一致性层 / 拟真层，明确当前阶段先做可配置、可持久化、可绑定、可验证的 profile 策略层，不提前投入重反检测拟真。
+- **2026.3.29-22:08:00** 完成了 **fingerprint profile schema 与任务绑定字段第一版**，新增 `fingerprint_profiles` 表，并为 `tasks` 增加 `fingerprint_profile_id / fingerprint_profile_version` 字段；`CreateTaskRequest / TaskResponse / GET /status / GET /tasks/:id` 已开始回显 profile 绑定信息，为后续真实 profile 注入与一致性校验铺路。
+- **2026.3.29-22:12:00** 完成了 **fingerprint profile 最小管理接口第一版**，新增 `POST /fingerprint-profiles`、`GET /fingerprint-profiles`、`GET /fingerprint-profiles/:id`，并让创建任务时可解析 active profile 的当前版本并写入任务绑定结果，为后续 profile 注入和版本审计提供基础。
+- **2026.3.29-22:16:00** 完成了 **fingerprint profile 一致性校验器第一版**，新增 `src/network_identity/validator.rs`，对 `timezone / locale / accept_language / platform / viewport / screen / hardware_concurrency / device_memory_gb` 做最小静态一致性检查，并将 `validation_ok / validation_issues` 接入 fingerprint profile 的创建与查询返回。
+- **2026.3.30-21:59:00** 完成了 **runner fingerprint profile 注入入口第一版**，`runner/engine.rs` 在 claim 任务时会联表读取 active fingerprint profile，并将 `id / version / profile_json` 注入 `RunnerTask`，让 fake/lightpanda runner 都能拿到统一的 profile 视图。
+- **2026.3.30-22:00:00** 完成了 **fingerprint 绑定链路 bug 修复第一版**，修正创建任务时 `fingerprint_profile_version` 写库占位错误，避免 profile 版本“算出来但没落库”的假闭环。
+- **2026.3.30-22:03:00** 完成了 **fingerprint 注入与异常场景集成测试补强**，新增 profile 注入成功、缺失 profile、inactive profile、stale version 四类集成测试；当前策略为：inactive profile 在创建阶段直接拒绝，缺失或版本不匹配的历史绑定在 runner 执行阶段按“无可用 profile”降级处理。
+
 ## 1. 已经实现 / 已经落地
 
 ### 1.1 项目方向与北极星已定义
@@ -247,7 +256,16 @@
 - `GET /tasks/:id/logs`
 - 可直接查看指定任务的运行历史与执行日志
 
-### 1.16 长期设计方向已明确
+### 1.16 指纹 profile 控制面与执行链第一版已落地
+已支持：
+- `fingerprint_profiles` 的创建 / 查询 / 校验
+- 任务与 `fingerprint_profile_id / version` 的绑定
+- runner claim 阶段联表读取 active profile
+- fake/lightpanda runner 结果中回显 `fingerprint_profile`
+- inactive profile 在创建阶段直接拒绝
+- 缺失 profile / stale version 在执行阶段安全降级为不注入
+
+### 1.17 长期设计方向已明确
 已明确以下关键方向，并沉淀到文档：
 - 任务生命周期管理
 - fake runner / real runner 统一抽象

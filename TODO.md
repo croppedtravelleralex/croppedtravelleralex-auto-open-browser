@@ -38,8 +38,12 @@
 - [x] 让 AppState 持有当前 runner 句柄
 - [x] 打通 API 层 `running cancel` 第一版接线
 - [x] 增加 running cancel 状态竞争保护（第一版）
-- [ ] 设计浏览器指纹能力边界
+- [x] 设计浏览器指纹能力边界
 - [ ] 设计高级指纹下的性能预算与性能开销控制策略
+- [x] 设计指纹 profile schema 与任务绑定字段第一版
+- [x] 设计指纹 profile 一致性校验器第一版
+- [x] 增加 fingerprint profile 最小管理接口第一版
+- [x] 为 runner 增加 fingerprint profile 注入入口第一版
 - [ ] 设计持续抓取代理的工具（优先基于开源项目改造）
 - [ ] 设计代理抓取后的清洗、去重、候选入池流程
 - [ ] 设计代理池与代理轮换策略
@@ -56,6 +60,7 @@
 - [x] 修复 DB-first claim 后 queue_len / queued cancel 的内存队列漂移问题
 - [x] 将内存队列降级为兼容层，不再参与真实调度语义
 - [ ] 设计高并发下的性能优化与写放大控制策略
+- [x] 增加并发运行态可观测性第一版（status 暴露 worker / queue mode / reclaim）
 
 ## P2
 
@@ -65,12 +70,11 @@
 - [x] 增加运行历史与日志查询接口
 - [x] 清理 README / STATUS / PROGRESS 中过时静态状态
 - [x] 增加基础监控指标
-- [ ] 增加集成测试
+- [x] 增加集成测试
 - [x] 增加集成测试骨架第一版（fake runner + retry）
 - [x] 增加最小 smoke test 脚本
 - [x] 增加 lightpanda 专项验证脚本入口
 - [ ] 设计身份画像系统（Identity Profile）
-- [ ] 设计指纹一致性校验器
 - [ ] 设计代理质量评分系统
 - [ ] 设计站点维度代理适配机制
 - [ ] 设计行为层模拟机制

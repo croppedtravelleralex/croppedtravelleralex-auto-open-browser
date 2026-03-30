@@ -29,10 +29,11 @@
 1. 核对当前代码与文档是否一致，避免状态漂移
 2. 固化标准接手入口（`AI.md` / `PLAN.md` / `FEATURES.md`）与旧文档映射
 3. 完成 runner 通用执行层抽离后的结构收口，确保 fake/lightpanda/engine 职责清晰
-4. 继续验证并打磨 `LightpandaRunner` 本地二进制执行链路（stdout/stderr/timeout/exit code）
-5. 推进 `lightpanda` runner 适配层从最小真实执行走向更稳定可用
-6. 增强 `runs / logs / status` 查询控制与分页
-7. 继续推进 `running cancel` 从设计预留走向最小可用第一版
+4. 推进 fingerprint profile 从 runner 注入入口走向真实执行器消费边界
+5. 继续验证并打磨 `LightpandaRunner` 本地二进制执行链路（stdout/stderr/timeout/exit code）
+6. 推进 `lightpanda` runner 适配层从最小真实执行走向更稳定可用
+7. 增强 `runs / logs / status` 查询控制与分页
+8. 继续推进 `running cancel` 从设计预留走向最小可用第一版
 
 ### P1：控制面与观测面增强
 1. 明确当前取消、分页、状态控制等缺口的落地顺序
@@ -40,18 +41,27 @@
 3. 为 running cancel 做设计预留或第一版实现
 
 ### P2：中期能力铺垫
-1. 指纹能力边界设计
+1. 补齐浏览器指纹能力边界设计，并收口为可配置/可注入/可验证的第一版策略层
 2. 代理池 / 代理抓取 / 清洗 / 轮换 / 自生长策略设计
 3. 磁盘使用控制、artifact/log 保留与归档策略
 4. 高并发下性能优化与写放大控制策略
 
 ---
 
+## 3.1 Fingerprint -> Lightpanda 当前落地方向
+
+当前建议按以下顺序推进：
+1. 先在 `LightpandaRunner` 内新增 profile 消费边界函数，把 `RunnerFingerprintProfile` 映射为统一运行时配置对象
+2. 第一版优先映射低风险静态字段：`accept_language / timezone / locale / viewport / screen / platform / hardware_concurrency / device_memory_gb`
+3. 注入方式优先级：**环境变量 / CLI 参数 / 预留 browser context 配置**，避免一开始就侵入复杂浏览器补丁层
+4. 若执行器暂不支持某字段，必须显式记录“已收到但未消费”，不要静默吞掉
+5. 继续保持 profile 注入和真实执行解耦，让 fake runner / lightpanda runner 共享同一输入模型
+
 ## 4. 当前已知阻塞 / 风险
 
 - `LightpandaRunner` 虽已进入最小真实执行阶段，但当前仍偏 V1，缺少充分验证与稳定性保护
-- running cancel 仍未真正支持
-- 查询侧能力后续需要 limit / 分页控制
+- `LightpandaRunner` 仍未真正消费 fingerprint profile，只是拿到了统一注入对象
+- 查询侧能力虽已有 limit / offset，但后续仍可能需要更强的 cursor / metrics 方案
 - 部分历史文档保留了旧阶段表述，存在认知分散风险
 - 当前工作树已有未提交改动，接手时需小心不要覆盖进行中的实现
 

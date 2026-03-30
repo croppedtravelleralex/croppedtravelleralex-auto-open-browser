@@ -15,6 +15,8 @@ pub struct TaskRecord {
     pub finished_at: Option<String>,
     pub runner_id: Option<String>,
     pub heartbeat_at: Option<String>,
+    pub fingerprint_profile_id: Option<String>,
+    pub fingerprint_profile_version: Option<i64>,
     pub result_json: Option<String>,
     pub error_message: Option<String>,
 }
@@ -50,4 +52,17 @@ pub struct LogRecord {
     pub level: String,
     pub message: String,
     pub created_at: String,
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FingerprintProfileRecord {
+    pub id: String,
+    pub name: String,
+    pub version: i64,
+    pub status: String,
+    pub tags_json: Option<String>,
+    pub profile_json: String,
+    pub created_at: String,
+    pub updated_at: String,
 }
