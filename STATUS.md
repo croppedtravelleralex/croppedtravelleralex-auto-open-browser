@@ -32,9 +32,9 @@
 
 ## 当前下一步
 
-1. **整理文档并 commit/push 当前阶段收口**
-2. **继续细化 lease TTL / reclaim 策略与 worker 退避**
-3. **清掉新冒出来的测试 warning（`unused_mut`）**
+1. **再做一轮轻量性能复盘**
+2. **继续补代理验证的上游 HTTP/匿名性方向设计**
+3. **收口当前环境变量与状态暴露文档**
 4. **让内存队列进一步降级为唤醒/提示层，而不再参与执行真相判断**
 5. **继续清理 worker loop、claim SQL 与状态机边界**
 6. **继续把并发运行态观测补到 API / metrics 层，而不只停留在启动日志**
@@ -69,3 +69,5 @@
 - **sticky/provider 正式映射结构第一版已落地**，当前 `sticky_session` 已通过 `proxy_session_bindings` 表维护绑定，不再依赖历史任务结果 JSON 回溯；后续重点应转向 `/status` 聚合成本、warning 清理以及更真实的代理协议验证。
 
 - **HTTP/代理协议层 smoke test 第一版已落地**，当前 smoke test 已不再只验证 TCP 端口可达，而会尝试发送 HTTP CONNECT 并判断代理响应是否像样；但仍未覆盖 HTTPS 上游连通性、匿名性/IP 地区校验与批量巡检。
+
+- **lease TTL / reclaim / worker backoff 再收口已落地**，当前 stale running 回收已经进一步 DB-first 化，worker 空闲退避也加入了轻量 jitter 与 error backoff 上限；调度内核的竞争窗口与同步抖动都比前一轮更稳。

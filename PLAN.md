@@ -144,3 +144,8 @@
   - `POST /proxies/:id/smoke` 建立 TCP 后发送最小 HTTP CONNECT 探针
   - `ProxySmokeResponse` 新增 `protocol_ok`
   - 成功标准从“端口通”提升到“能收到 HTTP-like 代理响应”
+
+- lease TTL / reclaim / worker backoff 再收口已落地：
+  - stale running reclaim 改为批量 `UPDATE ... RETURNING`
+  - worker idle backoff 增加轻量 jitter
+  - error backoff 增加独立上限控制

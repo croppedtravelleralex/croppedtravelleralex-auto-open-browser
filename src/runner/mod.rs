@@ -87,6 +87,31 @@ pub fn next_runner_idle_backoff_ms(current_ms: u64) -> u64 {
     current_ms.saturating_mul(2).clamp(min_ms, max_ms)
 }
 
+pub fn runner_idle_backoff_jitter_ms_from_env() -> u64 {
+    std::env::var("AUTO_OPEN_BROWSER_RUNNER_IDLE_BACKOFF_JITTER_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(50)
+}
+
+pub fn runner_error_backoff_max_ms_from_env() -> u64 {
+    std::env::var("AUTO_OPEN_BROWSER_RUNNER_ERROR_BACKOFF_MAX_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(5000)
+        .max(runner_idle_backoff_max_ms_from_env())
+}
+
+pub fn with_runner_backoff_jitter(base_ms: u64, worker_id: usize) -> u64 {
+    let jitter = runner_idle_backoff_jitter_ms_from_env();
+    if jitter == 0 {
+        return base_ms;
+    }
+    base_ms.saturating_add((worker_id as u64 * 37) % (jitter + 1))
+}
+
+
 #[async_trait]
 pub trait TaskRunner: Send + Sync {
     fn name(&self) -> &'static str;
@@ -132,7 +157,7 @@ pub async fn spawn_runner_workers(state: AppState, runner: Arc<dyn TaskRunner>, 
                         idle_backoff_ms = min_idle_backoff_ms;
                     }
                     Ok(false) => {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(idle_backoff_ms)).await;
+                        tokio::time::sleep(tokio::time::Duration::from_millis(with_runner_backoff_jitter(idle_backoff_ms, worker_id))).await;
                         idle_backoff_ms = next_runner_idle_backoff_ms(idle_backoff_ms);
                     }
                     Err(err) => {
@@ -142,8 +167,8 @@ pub async fn spawn_runner_workers(state: AppState, runner: Arc<dyn TaskRunner>, 
                             runner.name(),
                             err
                         );
-                        tokio::time::sleep(tokio::time::Duration::from_millis(idle_backoff_ms)).await;
-                        idle_backoff_ms = next_runner_idle_backoff_ms(idle_backoff_ms);
+                        tokio::time::sleep(tokio::time::Duration::from_millis(with_runner_backoff_jitter(idle_backoff_ms.min(runner_error_backoff_max_ms_from_env()), worker_id))).await;
+                        idle_backoff_ms = next_runner_idle_backoff_ms(idle_backoff_ms).min(runner_error_backoff_max_ms_from_env());
                     }
                 }
             }
@@ -159,13 +184,18 @@ mod tests {
     fn next_runner_idle_backoff_respects_bounds() {
         std::env::set_var("AUTO_OPEN_BROWSER_RUNNER_IDLE_BACKOFF_MIN_MS", "200");
         std::env::set_var("AUTO_OPEN_BROWSER_RUNNER_IDLE_BACKOFF_MAX_MS", "1000");
+        std::env::set_var("AUTO_OPEN_BROWSER_RUNNER_IDLE_BACKOFF_JITTER_MS", "20");
 
         assert_eq!(next_runner_idle_backoff_ms(200), 400);
         assert_eq!(next_runner_idle_backoff_ms(400), 800);
         assert_eq!(next_runner_idle_backoff_ms(800), 1000);
         assert_eq!(next_runner_idle_backoff_ms(1000), 1000);
+        assert_eq!(with_runner_backoff_jitter(200, 0), 200);
+        assert!(with_runner_backoff_jitter(200, 1) >= 200);
+        assert!(with_runner_backoff_jitter(200, 1) <= 220);
 
         std::env::remove_var("AUTO_OPEN_BROWSER_RUNNER_IDLE_BACKOFF_MIN_MS");
         std::env::remove_var("AUTO_OPEN_BROWSER_RUNNER_IDLE_BACKOFF_MAX_MS");
+        std::env::remove_var("AUTO_OPEN_BROWSER_RUNNER_IDLE_BACKOFF_JITTER_MS");
     }
 }
