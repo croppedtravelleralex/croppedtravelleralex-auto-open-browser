@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::network_identity::proxy_selection::{apply_proxy_resolution_metadata, proxy_selection_base_where_sql, proxy_selection_order_by_trust_score_sql_with_tuning, proxy_trust_score_sql_with_tuning, resolved_proxy_json};
 use crate::{
     app::state::AppState,
+    db::init::refresh_provider_risk_snapshots,
     domain::{
         run::{RUN_STATUS_RUNNING, RUN_STATUS_SUCCEEDED, RUN_STATUS_FAILED, RUN_STATUS_TIMED_OUT},
         task::{
@@ -334,15 +335,8 @@ async fn compute_proxy_selection_explain(
     proxy_id: &str,
     now: &str,
 ) -> Result<(Option<i64>, Value)> {
-    let provider_risk_query = format!(
-        "SELECT EXISTS(SELECT 1 FROM proxies p WHERE p.id = ? AND p.provider IS NOT NULL AND p.provider IN (SELECT provider FROM proxies WHERE provider IS NOT NULL GROUP BY provider HAVING SUM(failure_count) >= SUM(success_count) + {}))",
-        state.proxy_selection_tuning.provider_failure_margin
-    );
-    let provider_region_query = format!(
-        "SELECT EXISTS(SELECT 1 FROM proxies p WHERE p.id = ? AND p.provider IS NOT NULL AND p.region IS NOT NULL AND (p.provider, p.region) IN (SELECT provider, region FROM proxies WHERE provider IS NOT NULL AND region IS NOT NULL AND last_verify_status = 'failed' AND last_verify_at IS NOT NULL AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - {} GROUP BY provider, region HAVING COUNT(*) >= {}))",
-        state.proxy_selection_tuning.provider_region_failure_cluster_window_seconds,
-        state.proxy_selection_tuning.provider_region_failure_cluster_count
-    );
+    let provider_risk_query = "SELECT EXISTS(SELECT 1 FROM provider_risk_snapshots s JOIN proxies p ON p.provider = s.provider WHERE p.id = ? AND s.risk_hit != 0)";
+    let provider_region_query = "SELECT EXISTS(SELECT 1 FROM provider_region_risk_snapshots s JOIN proxies p ON p.provider = s.provider AND p.region = s.region WHERE p.id = ? AND s.risk_hit != 0)";
     let row = sqlx::query_as::<_, (f64, i64, i64, Option<String>, Option<i64>, Option<i64>, Option<i64>)>(
         r#"SELECT score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, CAST(last_verify_at AS INTEGER) FROM proxies WHERE id = ?"#
     )
@@ -352,8 +346,8 @@ async fn compute_proxy_selection_explain(
     let Some((score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at)) = row else {
         return Ok((None, Value::Null));
     };
-    let provider_risk_hit: i64 = sqlx::query_scalar(&provider_risk_query).bind(proxy_id).fetch_one(&state.db).await?;
-    let provider_region_cluster_hit: i64 = sqlx::query_scalar(&provider_region_query).bind(proxy_id).bind(now).fetch_one(&state.db).await?;
+    let provider_risk_hit: i64 = sqlx::query_scalar(provider_risk_query).bind(proxy_id).fetch_one(&state.db).await?;
+    let provider_region_cluster_hit: i64 = sqlx::query_scalar(provider_region_query).bind(proxy_id).fetch_one(&state.db).await?;
     let trust_score_total = load_proxy_trust_score(state, proxy_id, now).await?;
     let components = computed_trust_score_components(
         &state.proxy_selection_tuning,
@@ -551,6 +545,7 @@ async fn update_proxy_health_after_execution(state: &AppState, proxy: Option<&Ru
         .bind(match execution_status { RunnerOutcomeStatus::Succeeded => 0.01_f64, RunnerOutcomeStatus::Failed => -0.02_f64, RunnerOutcomeStatus::TimedOut => -0.03_f64 })
         .bind(&now).bind(&proxy.id)
         .execute(&state.db).await?;
+    refresh_provider_risk_snapshots(&state.db).await?;
     Ok(())
 }
 

@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     network_identity::validator::validate_fingerprint_profile,
+    db::init::refresh_provider_risk_snapshots,
     app::state::AppState,
     domain::{
         run::{RUN_STATUS_CANCELLED, RUN_STATUS_RUNNING},
@@ -210,6 +211,7 @@ Host: verify.example:443
         .execute(&state.db)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to persist proxy verify result: {err}")))?;
+    refresh_provider_risk_snapshots(&state.db).await.map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to refresh provider risk snapshots: {err}")))?;
 
     Ok(ProxyVerifyResponse {
         id: proxy_id.to_string(),
@@ -630,17 +632,16 @@ pub async fn explain_proxy_selection(
         return Err((StatusCode::NOT_FOUND, format!("proxy not found: {proxy_id}")));
     };
 
-    let provider_risk_query = format!(
-        "SELECT EXISTS(SELECT 1 FROM proxies p WHERE p.id = ? AND p.provider IS NOT NULL AND p.provider IN (SELECT provider FROM proxies WHERE provider IS NOT NULL GROUP BY provider HAVING SUM(failure_count) >= SUM(success_count) + {}))",
-        state.proxy_selection_tuning.provider_failure_margin
-    );
-    let provider_region_query = format!(
-        "SELECT EXISTS(SELECT 1 FROM proxies p WHERE p.id = ? AND p.provider IS NOT NULL AND p.region IS NOT NULL AND (p.provider, p.region) IN (SELECT provider, region FROM proxies WHERE provider IS NOT NULL AND region IS NOT NULL AND last_verify_status = 'failed' AND last_verify_at IS NOT NULL AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - {} GROUP BY provider, region HAVING COUNT(*) >= {}))",
-        state.proxy_selection_tuning.provider_region_failure_cluster_window_seconds,
-        state.proxy_selection_tuning.provider_region_failure_cluster_count
-    );
-    let provider_risk_hit: i64 = sqlx::query_scalar(&provider_risk_query).bind(&proxy_id).fetch_one(&state.db).await.map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to compute provider risk: {err}")))?;
-    let provider_region_cluster_hit: i64 = sqlx::query_scalar(&provider_region_query).bind(&proxy_id).bind(&now).fetch_one(&state.db).await.map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to compute provider region risk: {err}")))?;
+    let provider_risk_hit: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM provider_risk_snapshots s JOIN proxies p ON p.provider = s.provider WHERE p.id = ? AND s.risk_hit != 0)")
+        .bind(&proxy_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to compute provider risk: {err}")))?;
+    let provider_region_cluster_hit: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM provider_region_risk_snapshots s JOIN proxies p ON p.provider = s.provider AND p.region = s.region WHERE p.id = ? AND s.risk_hit != 0)")
+        .bind(&proxy_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to compute provider region risk: {err}")))?;
     let now_ts = now.parse::<i64>().unwrap_or_default();
     let components = super::super::runner::engine::computed_trust_score_components(
         &state.proxy_selection_tuning,

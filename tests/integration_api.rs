@@ -2720,3 +2720,46 @@ region=Virginia
     let after: f64 = sqlx::query_scalar("SELECT score FROM proxies WHERE id = 'proxy-verify-score'").fetch_one(&state.db).await.expect("after score");
     assert!(after > before);
 }
+
+
+#[tokio::test]
+async fn provider_risk_snapshots_are_materialized_on_init() {
+    let db_url = unique_db_url();
+    let db = init_db(&db_url).await.expect("init db");
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, created_at, updated_at)
+                  VALUES
+                  ('proxy-risk-a', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'pool-risk', 'active', 0.5, 1, 10, '1', '1'),
+                  ('proxy-risk-b', 'http', '127.0.0.2', 8081, NULL, NULL, 'us-east', 'US', 'pool-risk', 'active', 0.5, 1, 10, '1', '1')"#)
+        .execute(&db)
+        .await
+        .expect("insert proxies");
+
+    AutoOpenBrowser::db::init::refresh_provider_risk_snapshots(&db).await.expect("refresh snapshots");
+    let risk_hit: i64 = sqlx::query_scalar("SELECT risk_hit FROM provider_risk_snapshots WHERE provider = 'pool-risk'")
+        .fetch_one(&db)
+        .await
+        .expect("provider risk snapshot");
+    assert_eq!(risk_hit, 1);
+}
+
+#[tokio::test]
+async fn provider_region_risk_snapshots_are_materialized_on_refresh() {
+    let db_url = unique_db_url();
+    let db = init_db(&db_url).await.expect("init db");
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_verify_status, last_verify_at, created_at, updated_at)
+                  VALUES
+                  ('proxy-pr-1', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'pool-pr', 'active', 0.5, 0, 5, 'failed', '9999999999', '1', '1'),
+                  ('proxy-pr-2', 'http', '127.0.0.2', 8081, NULL, NULL, 'us-east', 'US', 'pool-pr', 'active', 0.5, 0, 5, 'failed', '9999999999', '1', '1')"#)
+        .execute(&db)
+        .await
+        .expect("insert proxies");
+
+    AutoOpenBrowser::db::init::refresh_provider_risk_snapshots(&db).await.expect("refresh snapshots");
+    let risk_hit: i64 = sqlx::query_scalar("SELECT risk_hit FROM provider_region_risk_snapshots WHERE provider = 'pool-pr' AND region = 'us-east'")
+        .fetch_one(&db)
+        .await
+        .expect("provider region risk snapshot");
+    assert_eq!(risk_hit, 1);
+}

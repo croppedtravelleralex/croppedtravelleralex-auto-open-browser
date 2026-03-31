@@ -58,6 +58,49 @@ pub async fn init_db(database_url: &str) -> Result<DbPool> {
     ensure_column_exists(&pool, "proxies", "last_verify_confidence", "ALTER TABLE proxies ADD COLUMN last_verify_confidence REAL").await?;
     ensure_column_exists(&pool, "proxies", "last_verify_score_delta", "ALTER TABLE proxies ADD COLUMN last_verify_score_delta INTEGER").await?;
     ensure_column_exists(&pool, "proxies", "last_verify_source", "ALTER TABLE proxies ADD COLUMN last_verify_source TEXT").await?;
+    refresh_provider_risk_snapshots(&pool).await?;
 
     Ok(pool)
+}
+
+
+pub async fn refresh_provider_risk_snapshots(pool: &DbPool) -> Result<()> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+        .to_string();
+
+    sqlx::query("DELETE FROM provider_risk_snapshots").execute(pool).await?;
+    sqlx::query(
+        r#"INSERT INTO provider_risk_snapshots (provider, success_count, failure_count, risk_hit, updated_at)
+           SELECT provider, SUM(success_count), SUM(failure_count),
+                  CASE WHEN SUM(failure_count) >= SUM(success_count) + 5 THEN 1 ELSE 0 END,
+                  ?
+           FROM proxies
+           WHERE provider IS NOT NULL
+           GROUP BY provider"#,
+    )
+    .bind(&now)
+    .execute(pool)
+    .await?;
+
+    sqlx::query("DELETE FROM provider_region_risk_snapshots").execute(pool).await?;
+    sqlx::query(
+        r#"INSERT INTO provider_region_risk_snapshots (provider, region, recent_failed_count, risk_hit, updated_at)
+           SELECT provider, region, COUNT(*), CASE WHEN COUNT(*) >= 2 THEN 1 ELSE 0 END, ?
+           FROM proxies
+           WHERE provider IS NOT NULL
+             AND region IS NOT NULL
+             AND last_verify_status = 'failed'
+             AND last_verify_at IS NOT NULL
+             AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - 3600
+           GROUP BY provider, region"#,
+    )
+    .bind(&now)
+    .bind(&now)
+    .execute(pool)
+    .await?;
+
+    Ok(())
 }
