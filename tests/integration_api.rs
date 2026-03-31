@@ -2836,3 +2836,24 @@ async fn auto_selection_can_order_by_cached_trust_score() {
     let task_json = wait_for_terminal_status(&app, &task_id).await;
     assert_eq!(task_json.get("proxy_id").and_then(|v| v.as_str()), Some("proxy-cache-order-high"));
 }
+
+
+#[tokio::test]
+async fn scoped_cached_trust_score_refresh_updates_provider_group() {
+    let db_url = unique_db_url();
+    let db = init_db(&db_url).await.expect("init db");
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at, created_at, updated_at)
+                  VALUES
+                  ('proxy-scope-1', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'pool-scope', 'active', 0.4, 0, 0, NULL, 0, 0, NULL, '1', '1'),
+                  ('proxy-scope-2', 'http', '127.0.0.2', 8081, NULL, NULL, 'us-west', 'US', 'pool-scope', 'active', 0.4, 5, 0, 'ok', 1, 1, '9999999999', '1', '1')"#)
+        .execute(&db)
+        .await
+        .expect("insert proxies");
+
+    AutoOpenBrowser::db::init::refresh_provider_risk_snapshots(&db).await.expect("refresh risk snapshots");
+    AutoOpenBrowser::db::init::refresh_cached_trust_scores_for_provider(&db, Some("pool-scope")).await.expect("refresh cached trust by provider");
+    let cached_one: i64 = sqlx::query_scalar("SELECT COALESCE(cached_trust_score, 0) FROM proxies WHERE id = 'proxy-scope-1'").fetch_one(&db).await.expect("cache 1");
+    let cached_two: i64 = sqlx::query_scalar("SELECT COALESCE(cached_trust_score, 0) FROM proxies WHERE id = 'proxy-scope-2'").fetch_one(&db).await.expect("cache 2");
+    assert!(cached_two > cached_one);
+}

@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::network_identity::proxy_selection::{apply_proxy_resolution_metadata, proxy_selection_base_where_sql, proxy_selection_order_by_cached_trust_score_sql, proxy_selection_order_by_trust_score_sql_with_tuning, proxy_trust_score_sql_with_tuning, resolved_proxy_json};
 use crate::{
     app::state::AppState,
-    db::init::{refresh_cached_trust_score_for_proxy, refresh_provider_risk_snapshot_for_provider, refresh_provider_region_risk_snapshot_for_pair},
+    db::init::{refresh_cached_trust_score_for_proxy, refresh_cached_trust_scores_for_provider, refresh_cached_trust_scores_for_provider_region, refresh_provider_risk_snapshot_for_provider, refresh_provider_region_risk_snapshot_for_pair},
     domain::{
         run::{RUN_STATUS_RUNNING, RUN_STATUS_SUCCEEDED, RUN_STATUS_FAILED, RUN_STATUS_TIMED_OUT},
         task::{
@@ -526,6 +526,8 @@ async fn update_proxy_health_after_execution(state: &AppState, proxy: Option<&Ru
         .execute(&state.db).await?;
     refresh_provider_risk_snapshot_for_provider(&state.db, proxy.provider.as_deref()).await?;
     refresh_provider_region_risk_snapshot_for_pair(&state.db, proxy.provider.as_deref(), proxy.region.as_deref()).await?;
+    refresh_cached_trust_scores_for_provider(&state.db, proxy.provider.as_deref()).await?;
+    refresh_cached_trust_scores_for_provider_region(&state.db, proxy.provider.as_deref(), proxy.region.as_deref()).await?;
     refresh_cached_trust_score_for_proxy(&state.db, &proxy.id).await?;
     Ok(())
 }

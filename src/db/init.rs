@@ -244,3 +244,83 @@ pub async fn refresh_cached_trust_score_for_proxy(pool: &DbPool, proxy_id: &str)
     .await?;
     Ok(())
 }
+
+
+pub async fn refresh_cached_trust_scores_for_provider(pool: &DbPool, provider: Option<&str>) -> Result<()> {
+    let Some(provider) = provider else { return Ok(()); };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+        .to_string();
+    sqlx::query(
+        r#"UPDATE proxies
+           SET cached_trust_score =
+                (CASE WHEN last_verify_status = 'ok' THEN 30 ELSE 0 END) +
+                (CASE WHEN COALESCE(last_verify_geo_match_ok, 0) != 0 THEN 20 ELSE 0 END) +
+                (CASE WHEN COALESCE(last_smoke_upstream_ok, 0) != 0 THEN 10 ELSE 0 END) -
+                (CASE WHEN last_verify_status = 'failed' AND last_verify_at IS NOT NULL AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - 1800 THEN 25
+                      WHEN last_verify_status = 'failed' AND last_verify_at IS NOT NULL AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - 7200 THEN 12
+                      WHEN last_verify_status = 'failed' THEN 6
+                      ELSE 0 END) -
+                (CASE WHEN last_verify_at IS NULL THEN 12
+                      WHEN CAST(last_verify_at AS INTEGER) <= CAST(? AS INTEGER) - 86400 THEN 8
+                      ELSE 0 END) -
+                (CASE WHEN failure_count >= success_count + 3 THEN 18
+                      WHEN failure_count > success_count THEN 8
+                      ELSE 0 END) -
+                (CASE WHEN provider IS NOT NULL AND EXISTS (SELECT 1 FROM provider_risk_snapshots prs WHERE prs.provider = proxies.provider AND prs.risk_hit != 0) THEN 10 ELSE 0 END) -
+                (CASE WHEN provider IS NOT NULL AND region IS NOT NULL AND EXISTS (SELECT 1 FROM provider_region_risk_snapshots prrs WHERE prrs.provider = proxies.provider AND prrs.region = proxies.region AND prrs.risk_hit != 0) THEN 12 ELSE 0 END) +
+                CAST(score * 10 AS INTEGER),
+               trust_score_cached_at = ?
+           WHERE provider = ?"#,
+    )
+    .bind(&now)
+    .bind(&now)
+    .bind(&now)
+    .bind(&now)
+    .bind(provider)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn refresh_cached_trust_scores_for_provider_region(pool: &DbPool, provider: Option<&str>, region: Option<&str>) -> Result<()> {
+    let (Some(provider), Some(region)) = (provider, region) else { return Ok(()); };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+        .to_string();
+    sqlx::query(
+        r#"UPDATE proxies
+           SET cached_trust_score =
+                (CASE WHEN last_verify_status = 'ok' THEN 30 ELSE 0 END) +
+                (CASE WHEN COALESCE(last_verify_geo_match_ok, 0) != 0 THEN 20 ELSE 0 END) +
+                (CASE WHEN COALESCE(last_smoke_upstream_ok, 0) != 0 THEN 10 ELSE 0 END) -
+                (CASE WHEN last_verify_status = 'failed' AND last_verify_at IS NOT NULL AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - 1800 THEN 25
+                      WHEN last_verify_status = 'failed' AND last_verify_at IS NOT NULL AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - 7200 THEN 12
+                      WHEN last_verify_status = 'failed' THEN 6
+                      ELSE 0 END) -
+                (CASE WHEN last_verify_at IS NULL THEN 12
+                      WHEN CAST(last_verify_at AS INTEGER) <= CAST(? AS INTEGER) - 86400 THEN 8
+                      ELSE 0 END) -
+                (CASE WHEN failure_count >= success_count + 3 THEN 18
+                      WHEN failure_count > success_count THEN 8
+                      ELSE 0 END) -
+                (CASE WHEN provider IS NOT NULL AND EXISTS (SELECT 1 FROM provider_risk_snapshots prs WHERE prs.provider = proxies.provider AND prs.risk_hit != 0) THEN 10 ELSE 0 END) -
+                (CASE WHEN provider IS NOT NULL AND region IS NOT NULL AND EXISTS (SELECT 1 FROM provider_region_risk_snapshots prrs WHERE prrs.provider = proxies.provider AND prrs.region = proxies.region AND prrs.risk_hit != 0) THEN 12 ELSE 0 END) +
+                CAST(score * 10 AS INTEGER),
+               trust_score_cached_at = ?
+           WHERE provider = ? AND region = ?"#,
+    )
+    .bind(&now)
+    .bind(&now)
+    .bind(&now)
+    .bind(&now)
+    .bind(provider)
+    .bind(region)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
