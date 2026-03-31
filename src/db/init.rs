@@ -104,3 +104,65 @@ pub async fn refresh_provider_risk_snapshots(pool: &DbPool) -> Result<()> {
 
     Ok(())
 }
+
+
+pub async fn refresh_provider_risk_snapshot_for_provider(pool: &DbPool, provider: Option<&str>) -> Result<()> {
+    let Some(provider) = provider else { return Ok(()); };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+        .to_string();
+
+    sqlx::query("DELETE FROM provider_risk_snapshots WHERE provider = ?")
+        .bind(provider)
+        .execute(pool)
+        .await?;
+    sqlx::query(
+        r#"INSERT INTO provider_risk_snapshots (provider, success_count, failure_count, risk_hit, updated_at)
+           SELECT provider, SUM(success_count), SUM(failure_count),
+                  CASE WHEN SUM(failure_count) >= SUM(success_count) + 5 THEN 1 ELSE 0 END,
+                  ?
+           FROM proxies
+           WHERE provider = ?
+           GROUP BY provider"#,
+    )
+    .bind(&now)
+    .bind(provider)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn refresh_provider_region_risk_snapshot_for_pair(pool: &DbPool, provider: Option<&str>, region: Option<&str>) -> Result<()> {
+    let (Some(provider), Some(region)) = (provider, region) else { return Ok(()); };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+        .to_string();
+
+    sqlx::query("DELETE FROM provider_region_risk_snapshots WHERE provider = ? AND region = ?")
+        .bind(provider)
+        .bind(region)
+        .execute(pool)
+        .await?;
+    sqlx::query(
+        r#"INSERT INTO provider_region_risk_snapshots (provider, region, recent_failed_count, risk_hit, updated_at)
+           SELECT provider, region, COUNT(*), CASE WHEN COUNT(*) >= 2 THEN 1 ELSE 0 END, ?
+           FROM proxies
+           WHERE provider = ?
+             AND region = ?
+             AND last_verify_status = 'failed'
+             AND last_verify_at IS NOT NULL
+             AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - 3600
+           GROUP BY provider, region"#,
+    )
+    .bind(&now)
+    .bind(provider)
+    .bind(region)
+    .bind(&now)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

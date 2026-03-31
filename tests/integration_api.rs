@@ -2763,3 +2763,27 @@ async fn provider_region_risk_snapshots_are_materialized_on_refresh() {
         .expect("provider region risk snapshot");
     assert_eq!(risk_hit, 1);
 }
+
+
+#[tokio::test]
+async fn targeted_provider_snapshot_refresh_updates_only_requested_provider() {
+    let db_url = unique_db_url();
+    let db = init_db(&db_url).await.expect("init db");
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, created_at, updated_at)
+                  VALUES
+                  ('proxy-target-a1', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'pool-a', 'active', 0.5, 1, 10, '1', '1'),
+                  ('proxy-target-b1', 'http', '127.0.0.2', 8081, NULL, NULL, 'us-west', 'US', 'pool-b', 'active', 0.5, 10, 1, '1', '1')"#)
+        .execute(&db)
+        .await
+        .expect("insert proxies");
+
+    AutoOpenBrowser::db::init::refresh_provider_risk_snapshots(&db).await.expect("refresh all");
+    sqlx::query("UPDATE proxies SET failure_count = 20 WHERE provider = 'pool-b'").execute(&db).await.expect("update pool-b");
+    AutoOpenBrowser::db::init::refresh_provider_risk_snapshot_for_provider(&db, Some("pool-b")).await.expect("refresh pool-b only");
+
+    let pool_a: i64 = sqlx::query_scalar("SELECT risk_hit FROM provider_risk_snapshots WHERE provider = 'pool-a'").fetch_one(&db).await.expect("pool-a");
+    let pool_b: i64 = sqlx::query_scalar("SELECT risk_hit FROM provider_risk_snapshots WHERE provider = 'pool-b'").fetch_one(&db).await.expect("pool-b");
+    assert_eq!(pool_a, 1);
+    assert_eq!(pool_b, 1);
+}

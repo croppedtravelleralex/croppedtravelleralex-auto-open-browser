@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     network_identity::validator::validate_fingerprint_profile,
-    db::init::refresh_provider_risk_snapshots,
+    db::init::{refresh_provider_risk_snapshot_for_provider, refresh_provider_region_risk_snapshot_for_pair},
     app::state::AppState,
     domain::{
         run::{RUN_STATUS_CANCELLED, RUN_STATUS_RUNNING},
@@ -211,7 +211,17 @@ Host: verify.example:443
         .execute(&state.db)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to persist proxy verify result: {err}")))?;
-    refresh_provider_risk_snapshots(&state.db).await.map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to refresh provider risk snapshots: {err}")))?;
+    let provider_region = sqlx::query_as::<_, (Option<String>, Option<String>)>("SELECT provider, region FROM proxies WHERE id = ?")
+        .bind(proxy_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to load proxy provider/region after verify: {err}")))?;
+    refresh_provider_risk_snapshot_for_provider(&state.db, provider_region.0.as_deref())
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to refresh provider risk snapshot: {err}")))?;
+    refresh_provider_region_risk_snapshot_for_pair(&state.db, provider_region.0.as_deref(), provider_region.1.as_deref())
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to refresh provider region risk snapshot: {err}")))?;
 
     Ok(ProxyVerifyResponse {
         id: proxy_id.to_string(),
@@ -657,7 +667,7 @@ pub async fn explain_proxy_selection(
         now_ts,
     );
     let trust_score_total = sqlx::query_scalar::<_, i64>(&format!("SELECT CAST(({}) AS INTEGER) FROM proxies WHERE id = ?", trust_sql))
-        .bind(&now).bind(&now).bind(&now).bind(&now).bind(&proxy_id)
+        .bind(&now).bind(&now).bind(&now).bind(&proxy_id)
         .fetch_optional(&state.db)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to compute trust score: {err}")))?;

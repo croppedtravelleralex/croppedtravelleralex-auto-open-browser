@@ -74,6 +74,7 @@
 - **2026年03月31日 19时07分00秒** 实现了**冠军 vs 亚军结构化差分解释第一版**功能，为 explain 链路补上 machine-friendly diff 输出。
 - **2026年03月31日 19时14分00秒** 实现了**provider / provider×region 风险预聚合第一版**功能，引入风险快照表并在初始化与关键回写后刷新。
 - **2026年03月31日 19时20分00秒** 实现了**trust score 主排序切换到风险快照表**功能，使 provider 与 provider×region 风险判断正式进入预聚合主链。
+- **2026年03月31日 19时40分00秒** 实现了**风险快照定向刷新第一版**功能，把 verify / execution 高频链路从全量刷新收敛到按 provider 与 provider×region 精准刷新。
 
 ---
 
