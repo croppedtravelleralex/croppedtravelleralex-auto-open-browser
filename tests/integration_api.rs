@@ -2787,3 +2787,24 @@ async fn targeted_provider_snapshot_refresh_updates_only_requested_provider() {
     assert_eq!(pool_a, 1);
     assert_eq!(pool_b, 1);
 }
+
+
+#[tokio::test]
+async fn trust_score_cache_is_materialized_and_reused() {
+    let db_url = unique_db_url();
+    let db = init_db(&db_url).await.expect("init db");
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at, created_at, updated_at)
+                  VALUES ('proxy-cache-1', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'pool-cache', 'active', 0.8, 5, 0, 'ok', 1, 1, '9999999999', '1', '1')"#)
+        .execute(&db)
+        .await
+        .expect("insert proxy");
+
+    AutoOpenBrowser::db::init::refresh_provider_risk_snapshots(&db).await.expect("refresh risk snapshots");
+    AutoOpenBrowser::db::init::refresh_cached_trust_scores(&db).await.expect("refresh trust score cache");
+    let cached: i64 = sqlx::query_scalar("SELECT cached_trust_score FROM proxies WHERE id = 'proxy-cache-1'")
+        .fetch_one(&db)
+        .await
+        .expect("cached trust score");
+    assert!(cached > 0);
+}

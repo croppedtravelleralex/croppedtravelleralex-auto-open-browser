@@ -154,6 +154,8 @@ CREATE TABLE IF NOT EXISTS proxies (
     last_verify_confidence REAL,
     last_verify_score_delta INTEGER,
     last_verify_source TEXT,
+    cached_trust_score INTEGER,
+    trust_score_cached_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );

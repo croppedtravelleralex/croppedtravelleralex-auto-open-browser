@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::network_identity::proxy_selection::{apply_proxy_resolution_metadata, proxy_selection_base_where_sql, proxy_selection_order_by_trust_score_sql_with_tuning, proxy_trust_score_sql_with_tuning, resolved_proxy_json};
 use crate::{
     app::state::AppState,
-    db::init::{refresh_provider_risk_snapshot_for_provider, refresh_provider_region_risk_snapshot_for_pair},
+    db::init::{refresh_cached_trust_score_for_proxy, refresh_provider_risk_snapshot_for_provider, refresh_provider_region_risk_snapshot_for_pair},
     domain::{
         run::{RUN_STATUS_RUNNING, RUN_STATUS_SUCCEEDED, RUN_STATUS_FAILED, RUN_STATUS_TIMED_OUT},
         task::{
@@ -76,14 +76,7 @@ fn extract_proxy_selection(payload: &Value) -> Option<RunnerProxySelection> {
 }
 
 async fn load_proxy_trust_score(state: &AppState, proxy_id: &str, now: &str) -> Result<Option<i64>> {
-    let query = format!(
-        "SELECT CAST(({}) AS INTEGER) FROM proxies WHERE id = ? LIMIT 1",
-        proxy_trust_score_sql_with_tuning(&state.proxy_selection_tuning)
-    );
-    let value = sqlx::query_scalar::<_, i64>(&query)
-        .bind(now)
-        .bind(now)
-        .bind(now)
+    let value = sqlx::query_scalar::<_, i64>("SELECT cached_trust_score FROM proxies WHERE id = ? LIMIT 1")
         .bind(proxy_id)
         .fetch_optional(&state.db)
         .await?;
@@ -543,6 +536,7 @@ async fn update_proxy_health_after_execution(state: &AppState, proxy: Option<&Ru
         .execute(&state.db).await?;
     refresh_provider_risk_snapshot_for_provider(&state.db, proxy.provider.as_deref()).await?;
     refresh_provider_region_risk_snapshot_for_pair(&state.db, proxy.provider.as_deref(), proxy.region.as_deref()).await?;
+    refresh_cached_trust_score_for_proxy(&state.db, &proxy.id).await?;
     Ok(())
 }
 

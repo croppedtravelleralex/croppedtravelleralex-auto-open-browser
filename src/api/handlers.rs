@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     network_identity::validator::validate_fingerprint_profile,
-    db::init::{refresh_provider_risk_snapshot_for_provider, refresh_provider_region_risk_snapshot_for_pair},
+    db::init::{refresh_cached_trust_score_for_proxy, refresh_provider_risk_snapshot_for_provider, refresh_provider_region_risk_snapshot_for_pair},
     app::state::AppState,
     domain::{
         run::{RUN_STATUS_CANCELLED, RUN_STATUS_RUNNING},
@@ -222,6 +222,9 @@ Host: verify.example:443
     refresh_provider_region_risk_snapshot_for_pair(&state.db, provider_region.0.as_deref(), provider_region.1.as_deref())
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to refresh provider region risk snapshot: {err}")))?;
+    refresh_cached_trust_score_for_proxy(&state.db, proxy_id)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to refresh cached trust score: {err}")))?;
 
     Ok(ProxyVerifyResponse {
         id: proxy_id.to_string(),
@@ -666,8 +669,8 @@ pub async fn explain_proxy_selection(
         provider_region_cluster_hit != 0,
         now_ts,
     );
-    let trust_score_total = sqlx::query_scalar::<_, i64>(&format!("SELECT CAST(({}) AS INTEGER) FROM proxies WHERE id = ?", trust_sql))
-        .bind(&now).bind(&now).bind(&now).bind(&proxy_id)
+    let trust_score_total = sqlx::query_scalar::<_, i64>("SELECT COALESCE(cached_trust_score, 0) FROM proxies WHERE id = ?")
+        .bind(&proxy_id)
         .fetch_optional(&state.db)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to compute trust score: {err}")))?;
