@@ -51,6 +51,16 @@ pub fn proxy_selection_base_where_sql() -> &'static str {
     "#
 }
 
+pub fn proxy_long_term_weight_sql() -> &'static str {
+    r#"
+                 CASE
+                   WHEN failure_count >= success_count + 3 THEN 2
+                   WHEN failure_count > success_count THEN 1
+                   ELSE 0
+                 END ASC,
+    "#
+}
+
 pub fn proxy_selection_order_sql() -> &'static str {
     r#"
                  CASE WHEN last_verify_status = 'ok' THEN 0 ELSE 1 END ASC,
@@ -60,6 +70,11 @@ pub fn proxy_selection_order_sql() -> &'static str {
                    WHEN last_verify_status = 'failed' THEN 3
                    WHEN last_verify_at IS NULL THEN 2
                    WHEN CAST(last_verify_at AS INTEGER) <= CAST(? AS INTEGER) - 3600 THEN 1
+                   ELSE 0
+                 END ASC,
+                 CASE
+                   WHEN failure_count >= success_count + 3 THEN 2
+                   WHEN failure_count > success_count THEN 1
                    ELSE 0
                  END ASC,
                  score DESC,
@@ -87,10 +102,13 @@ mod tests {
     fn order_sql_contains_verify_risk_penalty_clauses() {
         let sql = proxy_selection_order_sql();
         let base = proxy_selection_base_where_sql();
+        let long_term = proxy_long_term_weight_sql();
+        assert!(long_term.contains("failure_count > success_count"));
         assert!(base.contains("WHERE status = 'active'"));
         assert!(sql.contains("last_verify_status = 'ok'"));
         assert!(sql.contains("last_verify_status = 'failed'"));
         assert!(sql.contains("last_verify_at IS NULL"));
+        assert!(sql.contains("failure_count >= success_count + 3"));
         assert!(sql.contains("score DESC"));
     }
 }

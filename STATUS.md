@@ -94,3 +94,5 @@
 - **代理选择策略层抽象已起步**：selection 规则已经开始从 engine 中拆出，当前策略模块已暴露 `ProxySelectionTier`、`ProxySelectionRule`、`current_proxy_selection_rules()`、`proxy_selection_base_where_sql()`、`proxy_selection_order_sql()`，engine 已开始直接复用这层规则来源。
 
 - **代理选择策略层第一版已初步成型**：策略模块当前已承载 selection 的 tier/rule 定义、base where、order sql、resolved/unresolved/resolved_sticky 解析状态口径，以及 resolved_proxy JSON 结果表达；engine 已开始直接复用这些能力。
+
+- **代理选择已开始纳入长期历史权重**：selection 当前除了吃即时 verify / geo / stale / missing 信号，也开始按 `success_count` / `failure_count` 的长期对比，对长期失败偏多的代理做额外后排处理。
