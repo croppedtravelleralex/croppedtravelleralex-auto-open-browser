@@ -1542,3 +1542,58 @@ region=Virginia
     assert_eq!(proxy_json.get("last_exit_region").and_then(|v| v.as_str()), Some("Virginia"));
     assert_eq!(proxy_json.get("last_anonymity_level").and_then(|v| v.as_str()), Some("elite"));
 }
+
+
+#[tokio::test]
+async fn proxy_selection_prefers_verified_proxy_health_signals() {
+    let db_url = unique_db_url();
+    let (_state, app) = build_test_app(&db_url).await.expect("build app");
+
+    let verified = serde_json::json!({
+        "id": "proxy-verified-best",
+        "scheme": "http",
+        "host": "127.0.0.1",
+        "port": 9001,
+        "provider": "pool-a",
+        "region": "us-east",
+        "country": "US",
+        "score": 0.8
+    });
+    let plain = serde_json::json!({
+        "id": "proxy-plain-worse",
+        "scheme": "http",
+        "host": "127.0.0.1",
+        "port": 9002,
+        "provider": "pool-a",
+        "region": "us-east",
+        "country": "US",
+        "score": 0.95
+    });
+    for payload in [verified, plain] {
+        let (status, _) = json_response(
+            &app,
+            Request::builder().method("POST").uri("/proxies").header("content-type", "application/json").body(Body::from(payload.to_string())).expect("request"),
+        ).await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+
+    let db = init_db(&db_url).await.expect("init db again");
+    sqlx::query(r#"UPDATE proxies SET last_verify_status = 'ok', last_verify_geo_match_ok = 1, last_smoke_upstream_ok = 1, last_exit_country = 'US', last_exit_region = 'Virginia' WHERE id = 'proxy-verified-best'"#)
+        .execute(&db)
+        .await
+        .expect("mark verified proxy");
+
+    let payload = serde_json::json!({
+        "kind": "open_page",
+        "url": "https://example.com",
+        "timeout_seconds": 5,
+        "network_policy_json": {"mode": "required_proxy", "provider": "pool-a", "region": "us-east"}
+    });
+    let (_, task_json) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/tasks").header("content-type", "application/json").body(Body::from(payload.to_string())).expect("request"),
+    ).await;
+    let task_id = task_json.get("id").and_then(|v| v.as_str()).expect("task id").to_string();
+    let task = wait_for_terminal_status(&app, &task_id).await;
+    assert_eq!(task.get("proxy_id").and_then(|v| v.as_str()), Some("proxy-verified-best"));
+}

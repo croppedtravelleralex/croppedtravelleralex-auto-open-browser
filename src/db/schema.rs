@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS logs (
 );
 "#;
 
-pub const ALL_SCHEMA_SQL: [&str; 7] = [
+pub const ALL_SCHEMA_SQL: [&str; 9] = [
     CREATE_TASKS_TABLE_SQL,
     CREATE_RUNS_TABLE_SQL,
     CREATE_ARTIFACTS_TABLE_SQL,
@@ -67,6 +67,8 @@ pub const ALL_SCHEMA_SQL: [&str; 7] = [
     CREATE_FINGERPRINT_PROFILES_TABLE_SQL,
     CREATE_PROXIES_TABLE_SQL,
     CREATE_PROXY_SESSION_BINDINGS_TABLE_SQL,
+    CREATE_PROXIES_SELECTION_INDEX_SQL,
+    CREATE_PROXY_SESSION_BINDINGS_LOOKUP_INDEX_SQL,
 ];
 
 
@@ -131,4 +133,15 @@ CREATE TABLE IF NOT EXISTS proxy_session_bindings (
     updated_at TEXT NOT NULL,
     FOREIGN KEY(proxy_id) REFERENCES proxies(id)
 );
+"#;
+
+
+pub const CREATE_PROXIES_SELECTION_INDEX_SQL: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_proxies_selection
+ON proxies(status, provider, region, score DESC, last_used_at, created_at);
+"#;
+
+pub const CREATE_PROXY_SESSION_BINDINGS_LOOKUP_INDEX_SQL: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_proxy_session_bindings_lookup
+ON proxy_session_bindings(proxy_id, provider, region, expires_at, last_used_at);
 "#;

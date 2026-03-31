@@ -139,7 +139,13 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
                  AND (? IS NULL OR provider = ?)
                  AND (? IS NULL OR region = ?)
                  AND score >= ?
-               ORDER BY score DESC, COALESCE(last_used_at, '0') ASC, created_at ASC
+               ORDER BY
+                 CASE WHEN last_verify_status = 'ok' THEN 0 ELSE 1 END ASC,
+                 CASE WHEN COALESCE(last_verify_geo_match_ok, 0) != 0 THEN 0 ELSE 1 END ASC,
+                 CASE WHEN COALESCE(last_smoke_upstream_ok, 0) != 0 THEN 0 ELSE 1 END ASC,
+                 score DESC,
+                 COALESCE(last_used_at, '0') ASC,
+                 created_at ASC
                LIMIT 1"#,
         )
         .bind(&now)
