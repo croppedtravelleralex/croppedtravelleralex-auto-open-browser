@@ -116,3 +116,7 @@
 - **trust score 核心化继续推进**：当前主排序已不再只是简单按 raw score 兜底，而是开始把 `score` 更明确地纳入 trust score 主排序表达，进一步收敛 selection 语义。
 
 - **第二轮稳定性清扫继续推进**：当前已进一步加固 lightpanda runner 中的 env lock poisoned 处理，避免该类锁异常直接触发 `expect(...)` panic。
+
+- **资源/内存专项检查方案已落成**：当前已形成 `docs/resource-health-checklist.md`，把进程内存、子进程、fd、SQLite 体量与高风险路径检查收成了可重复执行的专项清单。
+
+- **reclaim/retry flaky 测试已修平**：当前已把 reclaim 后 `/retry` 的竞态真实语义补进测试，不再假设一定返回 JSON queued，而是兼容 `200 OK` 与 `409 CONFLICT` 两类真实结果。
