@@ -118,6 +118,9 @@ pub struct WinnerVsRunnerUpFactor {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WinnerVsRunnerUpDiff {
+    pub winner_total_score: i64,
+    pub runner_up_total_score: i64,
+    pub score_gap: i64,
     pub factors: Vec<WinnerVsRunnerUpFactor>,
 }
 

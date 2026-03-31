@@ -169,6 +169,7 @@ pub fn structured_component_delta(current: &Value, baseline: Option<&Value>) -> 
         "verify_failed_base_penalty", "individual_history_penalty", "provider_risk_penalty", "provider_region_cluster_penalty"
     ];
     let positive = ["verify_ok_bonus", "verify_geo_match_bonus", "smoke_upstream_ok_bonus", "raw_score_component"];
+    let winner_total_score = keys.iter().map(|key| current.get(*key).and_then(|v| v.as_i64()).unwrap_or(0)).sum::<i64>();
     let Some(baseline) = baseline else {
         let mut factors: Vec<Value> = keys.into_iter().map(|key| json!({
             "factor": key,
@@ -179,10 +180,16 @@ pub fn structured_component_delta(current: &Value, baseline: Option<&Value>) -> 
         })).collect();
         factors.sort_by_key(|v| std::cmp::Reverse(v.get("delta").and_then(|v| v.as_i64()).unwrap_or(0).abs()));
         factors.truncate(5);
-        return json!({ "factors": factors });
+        return json!({
+            "winner_total_score": winner_total_score,
+            "runner_up_total_score": 0,
+            "score_gap": winner_total_score,
+            "factors": factors
+        });
     };
     let c = match current.as_object() { Some(v) => v, None => return Value::Null };
     let b = match baseline.as_object() { Some(v) => v, None => return Value::Null };
+    let runner_up_total_score = keys.iter().map(|key| baseline.get(*key).and_then(|v| v.as_i64()).unwrap_or(0)).sum::<i64>();
     let mut factors = Vec::new();
     for key in keys {
         let cv = c.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
@@ -206,7 +213,12 @@ pub fn structured_component_delta(current: &Value, baseline: Option<&Value>) -> 
     }
     factors.sort_by_key(|v| std::cmp::Reverse(v.get("delta").and_then(|v| v.as_i64()).unwrap_or(0).abs()));
     factors.truncate(5);
-    json!({ "factors": factors })
+    json!({
+        "winner_total_score": winner_total_score,
+        "runner_up_total_score": runner_up_total_score,
+        "score_gap": winner_total_score - runner_up_total_score,
+        "factors": factors
+    })
 }
 
 pub fn summarize_component_delta(current: &Value, baseline: Option<&Value>) -> String {
