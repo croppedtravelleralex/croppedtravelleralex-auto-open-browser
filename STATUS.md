@@ -108,3 +108,5 @@
 - **代理选择 tuning 已具备可切换/可注入入口**：selection 当前默认参数除了代码内默认值外，也已支持通过环境变量覆盖加载，执行链开始具备最小可行的策略配置切换入口。
 
 - **代理选择已具备 trust score 起点**：策略层当前已能把多条正负信号收敛为统一 trust score SQL 表达，为后续把 selection 从多段规则叠加推进到更统一的 trust/risk score 模型打下基础。
+
+- **稳定性清扫已开始处理 panic 风险点**：当前已先对 memory queue 与 lightpanda runner 中的 poisoned mutex 锁处理做加固，不再在这些点直接 `expect(...)` panic，而是改为尽量恢复内部状态继续工作。

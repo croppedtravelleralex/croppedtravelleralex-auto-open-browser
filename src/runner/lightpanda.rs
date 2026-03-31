@@ -297,7 +297,7 @@ impl LightpandaRunner {
             let mut guard = self
                 .running_tasks
                 .lock()
-                .expect("lightpanda running_tasks poisoned");
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             guard.insert(task_id.to_string(), pid);
         }
     }
@@ -306,7 +306,7 @@ impl LightpandaRunner {
         let mut guard = self
             .running_tasks
             .lock()
-            .expect("lightpanda running_tasks poisoned");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         guard.remove(task_id);
     }
 }
@@ -330,7 +330,7 @@ impl TaskRunner for LightpandaRunner {
             let guard = self
                 .running_tasks
                 .lock()
-                .expect("lightpanda running_tasks poisoned");
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             guard.get(task_id).copied()
         };
 
