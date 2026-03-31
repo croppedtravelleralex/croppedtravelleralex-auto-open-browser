@@ -163,42 +163,46 @@ pub fn summarize_component_advantages(components: &Value) -> String {
 }
 
 pub fn structured_component_delta(current: &Value, baseline: Option<&Value>) -> Value {
-    let Some(baseline) = baseline else {
-        return json!({
-            "winner_advantages": [],
-            "runner_up_advantages": [],
-            "neutral_factors": [],
-        });
-    };
-    let c = match current.as_object() { Some(v) => v, None => return Value::Null };
-    let b = match baseline.as_object() { Some(v) => v, None => return Value::Null };
-    let positive = ["verify_ok_bonus", "verify_geo_match_bonus", "smoke_upstream_ok_bonus", "raw_score_component"];
     let keys = [
         "verify_ok_bonus", "verify_geo_match_bonus", "smoke_upstream_ok_bonus", "raw_score_component",
         "missing_verify_penalty", "stale_verify_penalty", "verify_failed_heavy_penalty", "verify_failed_light_penalty",
         "verify_failed_base_penalty", "individual_history_penalty", "provider_risk_penalty", "provider_region_cluster_penalty"
     ];
-    let mut better = Vec::new();
-    let mut worse = Vec::new();
-    let mut same = Vec::new();
+    let positive = ["verify_ok_bonus", "verify_geo_match_bonus", "smoke_upstream_ok_bonus", "raw_score_component"];
+    let Some(baseline) = baseline else {
+        let factors: Vec<Value> = keys.into_iter().map(|key| json!({
+            "factor": key,
+            "winner_value": current.get(key).and_then(|v| v.as_i64()).unwrap_or(0),
+            "runner_up_value": 0,
+            "delta": current.get(key).and_then(|v| v.as_i64()).unwrap_or(0),
+            "direction": "neutral",
+        })).collect();
+        return json!({ "factors": factors });
+    };
+    let c = match current.as_object() { Some(v) => v, None => return Value::Null };
+    let b = match baseline.as_object() { Some(v) => v, None => return Value::Null };
+    let mut factors = Vec::new();
     for key in keys {
         let cv = c.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
         let bv = b.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
-        if positive.contains(&key) {
-            if cv > bv { better.push(key); }
-            else if cv < bv { worse.push(key); }
-            else { same.push(key); }
+        let (delta, direction) = if positive.contains(&key) {
+            let d = cv - bv;
+            let dir = if d > 0 { "winner" } else if d < 0 { "runner_up" } else { "neutral" };
+            (d, dir)
         } else {
-            if cv < bv { better.push(key); }
-            else if cv > bv { worse.push(key); }
-            else { same.push(key); }
-        }
+            let d = bv - cv;
+            let dir = if d > 0 { "winner" } else if d < 0 { "runner_up" } else { "neutral" };
+            (d, dir)
+        };
+        factors.push(json!({
+            "factor": key,
+            "winner_value": cv,
+            "runner_up_value": bv,
+            "delta": delta,
+            "direction": direction,
+        }));
     }
-    json!({
-        "winner_advantages": better,
-        "runner_up_advantages": worse,
-        "neutral_factors": same,
-    })
+    json!({ "factors": factors })
 }
 
 pub fn summarize_component_delta(current: &Value, baseline: Option<&Value>) -> String {

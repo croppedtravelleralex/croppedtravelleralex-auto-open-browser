@@ -100,10 +100,17 @@ pub struct CancelTaskResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WinnerVsRunnerUpFactor {
+    pub factor: String,
+    pub winner_value: i64,
+    pub runner_up_value: i64,
+    pub delta: i64,
+    pub direction: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WinnerVsRunnerUpDiff {
-    pub winner_advantages: Vec<String>,
-    pub runner_up_advantages: Vec<String>,
-    pub neutral_factors: Vec<String>,
+    pub factors: Vec<WinnerVsRunnerUpFactor>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
