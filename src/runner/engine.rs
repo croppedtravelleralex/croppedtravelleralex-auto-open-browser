@@ -5,7 +5,7 @@ use tokio::{sync::oneshot, task::JoinHandle, time::Duration};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::network_identity::proxy_selection::{apply_proxy_resolution_metadata, proxy_selection_base_where_sql, proxy_selection_order_by_trust_score_sql_with_tuning, proxy_trust_score_sql_with_tuning, resolved_proxy_json};
+use crate::network_identity::proxy_selection::{apply_proxy_resolution_metadata, proxy_selection_base_where_sql, proxy_selection_order_by_cached_trust_score_sql, proxy_selection_order_by_trust_score_sql_with_tuning, proxy_trust_score_sql_with_tuning, resolved_proxy_json};
 use crate::{
     app::state::AppState,
     db::init::{refresh_cached_trust_score_for_proxy, refresh_provider_risk_snapshot_for_provider, refresh_provider_region_risk_snapshot_for_pair},
@@ -243,7 +243,7 @@ async fn compute_top_candidate_component_map(
     let query = format!(
         "SELECT id FROM proxies {} ORDER BY {} LIMIT 3",
         proxy_selection_base_where_sql(),
-        proxy_selection_order_by_trust_score_sql_with_tuning(&state.proxy_selection_tuning)
+        proxy_selection_order_by_cached_trust_score_sql()
     );
     let ids = sqlx::query_scalar::<_, String>(&query)
         .bind(now)
@@ -252,9 +252,6 @@ async fn compute_top_candidate_component_map(
         .bind(region)
         .bind(region)
         .bind(min_score)
-        .bind(now)
-        .bind(now)
-        .bind(now)
         .fetch_all(&state.db).await?;
     let mut map = std::collections::HashMap::new();
     for id in ids {
@@ -272,24 +269,17 @@ pub async fn compute_candidate_preview_with_reasons(
     min_score: f64,
 ) -> Result<Vec<Value>> {
     let query = format!(
-        "SELECT id, provider, region, score, CAST(({}) AS INTEGER) AS trust_score_total FROM proxies {} ORDER BY {} LIMIT 3",
-        proxy_trust_score_sql_with_tuning(&state.proxy_selection_tuning),
+        "SELECT id, provider, region, score, COALESCE(cached_trust_score, 0) AS trust_score_total FROM proxies {} ORDER BY {} LIMIT 3",
         proxy_selection_base_where_sql(),
-        proxy_selection_order_by_trust_score_sql_with_tuning(&state.proxy_selection_tuning)
+        proxy_selection_order_by_cached_trust_score_sql()
     );
     let rows = sqlx::query_as::<_, (String, Option<String>, Option<String>, f64, i64)>(&query)
-        .bind(now)
-        .bind(now)
-        .bind(now)
         .bind(now)
         .bind(provider)
         .bind(provider)
         .bind(region)
         .bind(region)
         .bind(min_score)
-        .bind(now)
-        .bind(now)
-        .bind(now)
         .fetch_all(&state.db).await?;
     let component_map = compute_top_candidate_component_map(state, now, provider, region, min_score).await?;
     let baseline = rows.get(1).and_then(|row| component_map.get(&row.0));

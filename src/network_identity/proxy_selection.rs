@@ -524,6 +524,11 @@ pub fn proxy_selection_order_by_trust_score_sql_with_tuning(tuning: &ProxySelect
     )
 }
 
+
+pub fn proxy_selection_order_by_cached_trust_score_sql() -> String {
+    "COALESCE(cached_trust_score, -999999) DESC, score DESC, COALESCE(last_used_at, '0') ASC, created_at ASC".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProxyTrustScoreComponentWeights {
     pub verify_ok_bonus: i64,

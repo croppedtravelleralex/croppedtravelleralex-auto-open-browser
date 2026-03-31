@@ -2808,3 +2808,31 @@ async fn trust_score_cache_is_materialized_and_reused() {
         .expect("cached trust score");
     assert!(cached > 0);
 }
+
+
+#[tokio::test]
+async fn auto_selection_can_order_by_cached_trust_score() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at, created_at, updated_at)
+                  VALUES
+                  ('proxy-cache-order-low', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'pool-cached', 'active', 0.95, 0, 0, NULL, 0, 0, NULL, '1', '1'),
+                  ('proxy-cache-order-high', 'http', '127.0.0.2', 8081, NULL, NULL, 'us-east', 'US', 'pool-cached', 'active', 0.40, 5, 0, 'ok', 1, 1, '9999999999', '1', '1')"#)
+        .execute(&state.db)
+        .await
+        .expect("insert proxies");
+    AutoOpenBrowser::db::init::refresh_provider_risk_snapshots(&state.db).await.expect("refresh provider risk snapshots");
+    AutoOpenBrowser::db::init::refresh_cached_trust_scores(&state.db).await.expect("refresh cached trust scores");
+
+    let payload = serde_json::json!({
+        "kind": "open_page",
+        "url": "https://example.com/cached-order",
+        "timeout_seconds": 5,
+        "network_policy_json": {"mode": "required_proxy", "provider": "pool-cached", "region": "us-east"}
+    });
+    let (_, create_json) = json_response(&app, Request::builder().method("POST").uri("/tasks").header("content-type", "application/json").body(Body::from(payload.to_string())).expect("request")).await;
+    let task_id = create_json.get("id").and_then(|v| v.as_str()).expect("task id").to_string();
+    let task_json = wait_for_terminal_status(&app, &task_id).await;
+    assert_eq!(task_json.get("proxy_id").and_then(|v| v.as_str()), Some("proxy-cache-order-high"));
+}

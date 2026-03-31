@@ -76,6 +76,7 @@
 - **2026年03月31日 19时20分00秒** 实现了**trust score 主排序切换到风险快照表**功能，使 provider 与 provider×region 风险判断正式进入预聚合主链。
 - **2026年03月31日 19时40分00秒** 实现了**风险快照定向刷新第一版**功能，把 verify / execution 高频链路从全量刷新收敛到按 provider 与 provider×region 精准刷新。
 - **2026年03月31日 19时49分00秒** 实现了**trust score 快照/缓存第一版**功能，为 proxies 持久化缓存 trust score，并在关键刷新点同步更新。
+- **2026年03月31日 19时54分00秒** 实现了**selection 主排序切换到 cached_trust_score 第一版**功能，让 auto selection 与候选预览开始优先按缓存 trust score 排序。
 
 ---
 
