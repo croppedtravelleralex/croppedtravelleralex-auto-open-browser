@@ -1707,7 +1707,9 @@ async fn verify_batch_enqueues_verify_proxy_tasks() {
         "region": "us-east",
         "limit": 10,
         "only_stale": true,
-        "min_score": 0.5
+        "min_score": 0.5,
+        "stale_after_seconds": 7200,
+        "task_timeout_seconds": 9
     });
     let (batch_status, batch_json) = json_response(
         &app,
@@ -1715,12 +1717,19 @@ async fn verify_batch_enqueues_verify_proxy_tasks() {
     ).await;
     assert_eq!(batch_status, StatusCode::ACCEPTED);
     assert_eq!(batch_json.get("accepted").and_then(|v| v.as_i64()), Some(2));
+    assert_eq!(batch_json.get("stale_after_seconds").and_then(|v| v.as_i64()), Some(7200));
+    assert_eq!(batch_json.get("task_timeout_seconds").and_then(|v| v.as_i64()), Some(9));
 
     let queued_verify_tasks: i64 = sqlx::query_scalar(r#"SELECT COUNT(*) FROM tasks WHERE kind = 'verify_proxy' AND status = 'queued'"#)
         .fetch_one(&state.db)
         .await
         .expect("count verify tasks");
     assert_eq!(queued_verify_tasks, 2);
+    let queued_timeout: i64 = sqlx::query_scalar(r#"SELECT json_extract(input_json, '$.timeout_seconds') FROM tasks WHERE kind = 'verify_proxy' ORDER BY id LIMIT 1"#)
+        .fetch_one(&state.db)
+        .await
+        .expect("load timeout seconds");
+    assert_eq!(queued_timeout, 9);
 }
 
 
@@ -1751,4 +1760,34 @@ async fn status_exposes_verify_metrics_summary() {
     assert_eq!(metrics.get("verified_failed").and_then(|v| v.as_i64()), Some(1));
     assert_eq!(metrics.get("geo_match_ok").and_then(|v| v.as_i64()), Some(1));
     assert_eq!(metrics.get("stale_or_missing_verify").and_then(|v| v.as_i64()), Some(1));
+}
+
+
+#[tokio::test]
+async fn verify_batch_skips_recently_verified_proxy_when_only_stale() {
+    let db_url = unique_db_url();
+    let db = init_db(&db_url).await.expect("init db");
+    let runner = std::sync::Arc::new(FakeRunner);
+    let state = build_app_state(db.clone(), runner, None, 1);
+    let app = build_router(state.clone());
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, last_smoke_status, last_smoke_protocol_ok, last_smoke_upstream_ok, last_exit_ip, last_anonymity_level, last_smoke_at, last_verify_status, last_verify_geo_match_ok, last_exit_country, last_exit_region, last_verify_at, created_at, updated_at)
+                  VALUES ('proxy-recent-verify', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'pool-a', 'active', 0.9, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'ok', 1, 'US', 'Virginia', '9999999999', '1', '1')"#)
+        .execute(&db)
+        .await
+        .expect("insert recent proxy");
+
+    let batch_payload = serde_json::json!({
+        "provider": "pool-a",
+        "region": "us-east",
+        "limit": 10,
+        "only_stale": true,
+        "stale_after_seconds": 7200
+    });
+    let (batch_status, batch_json) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/proxies/verify-batch").header("content-type", "application/json").body(Body::from(batch_payload.to_string())).expect("request"),
+    ).await;
+    assert_eq!(batch_status, StatusCode::ACCEPTED);
+    assert_eq!(batch_json.get("accepted").and_then(|v| v.as_i64()), Some(0));
 }

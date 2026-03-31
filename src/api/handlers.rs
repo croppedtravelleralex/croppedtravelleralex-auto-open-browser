@@ -1205,6 +1205,8 @@ pub async fn verify_batch_proxies(
     let requested = sanitize_limit(payload.limit, 20, 200);
     let min_score = payload.min_score.unwrap_or(0.0);
     let only_stale = payload.only_stale.unwrap_or(true);
+    let stale_after_seconds = payload.stale_after_seconds.unwrap_or(3600).max(60);
+    let task_timeout_seconds = payload.task_timeout_seconds.unwrap_or(5).max(1);
     let now = now_ts_string();
     let rows = sqlx::query_as::<_, (String,)>(
         r#"SELECT id FROM proxies
@@ -1217,7 +1219,7 @@ pub async fn verify_batch_proxies(
                OR last_verify_at IS NULL
                OR last_verify_status IS NULL
                OR last_verify_status != 'ok'
-               OR CAST(last_verify_at AS INTEGER) <= CAST(? AS INTEGER) - 3600
+               OR CAST(last_verify_at AS INTEGER) <= CAST(? AS INTEGER) - ?
              )
            ORDER BY
              CASE WHEN last_verify_status = 'ok' THEN 1 ELSE 0 END ASC,
@@ -1233,6 +1235,7 @@ pub async fn verify_batch_proxies(
     .bind(min_score)
     .bind(if only_stale { 1_i64 } else { 0_i64 })
     .bind(&now)
+    .bind(stale_after_seconds)
     .bind(requested)
     .fetch_all(&state.db)
     .await
@@ -1245,7 +1248,7 @@ pub async fn verify_batch_proxies(
         let input_json = serde_json::json!({
             "url": serde_json::Value::Null,
             "script": serde_json::Value::Null,
-            "timeout_seconds": 5,
+            "timeout_seconds": task_timeout_seconds,
             "fingerprint_profile_id": serde_json::Value::Null,
             "fingerprint_profile_version": serde_json::Value::Null,
             "proxy_id": proxy_id,
@@ -1275,6 +1278,8 @@ pub async fn verify_batch_proxies(
             requested,
             accepted,
             skipped: requested - accepted,
+            stale_after_seconds,
+            task_timeout_seconds,
             status: "scheduled".to_string(),
         }),
     ))

@@ -245,6 +245,8 @@ pub struct ProxyVerifyBatchRequest {
     pub limit: Option<i64>,
     pub only_stale: Option<bool>,
     pub min_score: Option<f64>,
+    pub stale_after_seconds: Option<i64>,
+    pub task_timeout_seconds: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -252,5 +254,7 @@ pub struct ProxyVerifyBatchResponse {
     pub requested: i64,
     pub accepted: i64,
     pub skipped: i64,
+    pub stale_after_seconds: i64,
+    pub task_timeout_seconds: i64,
     pub status: String,
 }
