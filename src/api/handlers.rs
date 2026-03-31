@@ -22,7 +22,7 @@ use crate::{
 use super::dto::{
     CancelTaskResponse, CreateFingerprintProfileRequest, CreateProxyRequest, CreateTaskRequest,
     FingerprintMetricsResponse, FingerprintProfileResponse, HealthResponse, LogResponse,
-    PaginationQuery, ProxyMetricsResponse, ProxyResponse, ProxySmokeResponse, ProxyVerifyResponse, RetryTaskResponse,
+    PaginationQuery, ProxyMetricsResponse, ProxyResponse, ProxySmokeResponse, ProxyVerifyBatchRequest, ProxyVerifyBatchResponse, ProxyVerifyResponse, RetryTaskResponse,
     RunResponse, StatusResponse, TaskResponse, TaskStatusCounts, WorkerStatusResponse,
 };
 
@@ -1176,6 +1176,89 @@ Host: example.com:443
     }
 }
 
+
+
+pub async fn verify_batch_proxies(
+    State(state): State<AppState>,
+    Json(payload): Json<ProxyVerifyBatchRequest>,
+) -> Result<(StatusCode, Json<ProxyVerifyBatchResponse>), (StatusCode, String)> {
+    let requested = sanitize_limit(payload.limit, 20, 200);
+    let min_score = payload.min_score.unwrap_or(0.0);
+    let only_stale = payload.only_stale.unwrap_or(true);
+    let now = now_ts_string();
+    let rows = sqlx::query_as::<_, (String,)>(
+        r#"SELECT id FROM proxies
+           WHERE status = 'active'
+             AND (? IS NULL OR provider = ?)
+             AND (? IS NULL OR region = ?)
+             AND score >= ?
+             AND (
+               ? = 0
+               OR last_verify_at IS NULL
+               OR last_verify_status IS NULL
+               OR last_verify_status != 'ok'
+               OR CAST(last_verify_at AS INTEGER) <= CAST(? AS INTEGER) - 3600
+             )
+           ORDER BY
+             CASE WHEN last_verify_status = 'ok' THEN 1 ELSE 0 END ASC,
+             COALESCE(last_verify_at, '0') ASC,
+             score DESC,
+             created_at ASC
+           LIMIT ?"#,
+    )
+    .bind(&payload.provider)
+    .bind(&payload.provider)
+    .bind(&payload.region)
+    .bind(&payload.region)
+    .bind(min_score)
+    .bind(if only_stale { 1_i64 } else { 0_i64 })
+    .bind(&now)
+    .bind(requested)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to select proxies for verify batch: {err}")))?;
+
+    let mut accepted = 0_i64;
+    for (proxy_id,) in &rows {
+        let task_id = format!("task-{}", Uuid::new_v4());
+        let created_at = now_ts_string();
+        let input_json = serde_json::json!({
+            "url": serde_json::Value::Null,
+            "script": serde_json::Value::Null,
+            "timeout_seconds": 5,
+            "fingerprint_profile_id": serde_json::Value::Null,
+            "fingerprint_profile_version": serde_json::Value::Null,
+            "proxy_id": proxy_id,
+            "network_policy_json": serde_json::Value::Null,
+        }).to_string();
+        sqlx::query(
+            r#"INSERT INTO tasks (
+                id, kind, status, input_json, network_policy_json, fingerprint_profile_json,
+                priority, created_at, queued_at, started_at, finished_at, fingerprint_profile_id,
+                fingerprint_profile_version, runner_id, heartbeat_at, result_json, error_message
+            ) VALUES (?, 'verify_proxy', ?, ?, NULL, NULL, 0, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)"#,
+        )
+        .bind(&task_id)
+        .bind(TASK_STATUS_QUEUED)
+        .bind(&input_json)
+        .bind(&created_at)
+        .bind(&created_at)
+        .execute(&state.db)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to enqueue verify task: {err}")))?;
+        accepted += 1;
+    }
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(ProxyVerifyBatchResponse {
+            requested,
+            accepted,
+            skipped: requested - accepted,
+            status: "scheduled".to_string(),
+        }),
+    ))
+}
 
 pub async fn verify_proxy(
     State(state): State<AppState>,

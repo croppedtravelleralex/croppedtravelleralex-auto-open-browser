@@ -1673,3 +1673,52 @@ region=Oregon
     assert_eq!(proxy_json.get("last_verify_status").and_then(|v| v.as_str()), Some("ok"));
     assert_eq!(proxy_json.get("last_exit_region").and_then(|v| v.as_str()), Some("Oregon"));
 }
+
+
+#[tokio::test]
+async fn verify_batch_enqueues_verify_proxy_tasks() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    for (id, provider, region, score) in [
+        ("proxy-batch-1", "pool-a", "us-east", 0.9),
+        ("proxy-batch-2", "pool-a", "us-east", 0.8),
+        ("proxy-batch-3", "pool-b", "eu-west", 0.95),
+    ] {
+        let proxy_payload = serde_json::json!({
+            "id": id,
+            "scheme": "http",
+            "host": "127.0.0.1",
+            "port": 8000,
+            "region": region,
+            "country": "US",
+            "provider": provider,
+            "score": score
+        });
+        let (status, _) = json_response(
+            &app,
+            Request::builder().method("POST").uri("/proxies").header("content-type", "application/json").body(Body::from(proxy_payload.to_string())).expect("request"),
+        ).await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+
+    let batch_payload = serde_json::json!({
+        "provider": "pool-a",
+        "region": "us-east",
+        "limit": 10,
+        "only_stale": true,
+        "min_score": 0.5
+    });
+    let (batch_status, batch_json) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/proxies/verify-batch").header("content-type", "application/json").body(Body::from(batch_payload.to_string())).expect("request"),
+    ).await;
+    assert_eq!(batch_status, StatusCode::ACCEPTED);
+    assert_eq!(batch_json.get("accepted").and_then(|v| v.as_i64()), Some(2));
+
+    let queued_verify_tasks: i64 = sqlx::query_scalar(r#"SELECT COUNT(*) FROM tasks WHERE kind = 'verify_proxy' AND status = 'queued'"#)
+        .fetch_one(&state.db)
+        .await
+        .expect("count verify tasks");
+    assert_eq!(queued_verify_tasks, 2);
+}

@@ -227,3 +227,21 @@ pub struct ProxyVerifyResponse {
     pub status: String,
     pub message: String,
 }
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyVerifyBatchRequest {
+    pub provider: Option<String>,
+    pub region: Option<String>,
+    pub limit: Option<i64>,
+    pub only_stale: Option<bool>,
+    pub min_score: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyVerifyBatchResponse {
+    pub requested: i64,
+    pub accepted: i64,
+    pub skipped: i64,
+    pub status: String,
+}
