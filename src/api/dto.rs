@@ -370,3 +370,13 @@ pub struct ProxyTrustCacheRepairBatchResponse {
     pub remaining_drifted: usize,
     pub items: Vec<ProxyTrustCacheScanItem>,
 }
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyTrustCacheMaintenanceResponse {
+    pub scanned_before: usize,
+    pub drifted_before: usize,
+    pub repaired: usize,
+    pub remaining_drifted: usize,
+    pub ok: bool,
+}

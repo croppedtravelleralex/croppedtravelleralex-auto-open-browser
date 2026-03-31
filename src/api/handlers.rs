@@ -23,7 +23,7 @@ use crate::{
 use super::dto::{
     CancelTaskResponse, CreateFingerprintProfileRequest, CreateProxyRequest, CreateTaskRequest,
     FingerprintMetricsResponse, FingerprintProfileResponse, HealthResponse, LogResponse,
-    PaginationQuery, ProxyMetricsResponse, ProxyResponse, ProxySelectionExplainResponse, ProxySmokeResponse, ProxyTrustCacheCheckResponse, ProxyTrustCacheRepairBatchResponse, ProxyTrustCacheRepairResponse, ProxyTrustCacheScanItem, ProxyTrustCacheScanResponse, ProxyVerifyBatchProviderSummary, ProxyVerifyBatchRequest, ProxyVerifyBatchResponse, ProxyVerifyResponse, RetryTaskResponse, VerifyBatchListQuery, VerifyBatchResponse, VerifyMetricsResponse,
+    PaginationQuery, ProxyMetricsResponse, ProxyResponse, ProxySelectionExplainResponse, ProxySmokeResponse, ProxyTrustCacheCheckResponse, ProxyTrustCacheMaintenanceResponse, ProxyTrustCacheRepairBatchResponse, ProxyTrustCacheRepairResponse, ProxyTrustCacheScanItem, ProxyTrustCacheScanResponse, ProxyVerifyBatchProviderSummary, ProxyVerifyBatchRequest, ProxyVerifyBatchResponse, ProxyVerifyResponse, RetryTaskResponse, VerifyBatchListQuery, VerifyBatchResponse, VerifyMetricsResponse,
     RunResponse, StatusResponse, TaskResponse, TaskStatusCounts, WorkerStatusResponse,
 };
 
@@ -725,6 +725,29 @@ pub async fn scan_proxy_trust_cache(
         total: items.len(),
         drifted,
         items,
+    }))
+}
+
+pub async fn maintain_proxy_trust_cache(
+    State(state): State<AppState>,
+) -> Result<Json<ProxyTrustCacheMaintenanceResponse>, (StatusCode, String)> {
+    let before = collect_trust_cache_scan_items(&state).await?;
+    let drifted_before = before.iter().filter(|item| !item.in_sync).count();
+    let mut repaired = 0usize;
+    for item in before.iter().filter(|item| !item.in_sync) {
+        refresh_cached_trust_score_for_proxy(&state.db, &item.proxy_id)
+            .await
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to maintain cached trust score for {}: {err}", item.proxy_id)))?;
+        repaired += 1;
+    }
+    let after = collect_trust_cache_scan_items(&state).await?;
+    let remaining_drifted = after.iter().filter(|item| !item.in_sync).count();
+    Ok(Json(ProxyTrustCacheMaintenanceResponse {
+        scanned_before: before.len(),
+        drifted_before,
+        repaired,
+        remaining_drifted,
+        ok: remaining_drifted == 0,
     }))
 }
 

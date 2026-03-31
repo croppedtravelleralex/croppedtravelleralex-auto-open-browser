@@ -82,6 +82,7 @@
 - **2026年03月31日 20时21分00秒** 实现了**trust score 缓存修复接口第一版**功能，可对单个代理执行 cache repair 并返回修复结果。
 - **2026年03月31日 20时30分00秒** 实现了**批量 trust cache scan / repair 第一版**功能，支持批量扫描漂移项并批量修复。
 - **2026年03月31日 20时37分00秒** 实现了**explain 链 cache-first 收口第一版**功能，check / repair / explain 复用缓存读取并减少重复查询。
+- **2026年03月31日 20时43分00秒** 实现了**trust cache maintenance 运维入口第一版**功能，可一键执行 scan → repair → rescan。
 
 ---
 
