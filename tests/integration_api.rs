@@ -1719,21 +1719,25 @@ async fn verify_batch_enqueues_verify_proxy_tasks() {
     assert_eq!(batch_json.get("task_timeout_seconds").and_then(|v| v.as_i64()), Some(9));
     assert_eq!(batch_json.get("provider_summary").and_then(|v| v.as_array()).map(|v| v.len()), Some(1));
 
-    let queued_verify_tasks: i64 = sqlx::query_scalar(r#"SELECT COUNT(*) FROM tasks WHERE kind = 'verify_proxy' AND status = 'queued'"#)
+    let batch_id = batch_json.get("batch_id").and_then(|v| v.as_str()).expect("batch id");
+    let queued_verify_tasks: i64 = sqlx::query_scalar(r#"SELECT COUNT(*) FROM tasks WHERE kind = 'verify_proxy' AND status = 'queued' AND json_extract(input_json, '$.verify_batch_id') = ?"#)
+        .bind(batch_id)
         .fetch_one(&state.db)
         .await
-        .expect("count verify tasks");
+        .expect("count verify tasks for batch");
     assert_eq!(queued_verify_tasks, 2);
-    let queued_timeout: i64 = sqlx::query_scalar(r#"SELECT json_extract(input_json, '$.timeout_seconds') FROM tasks WHERE kind = 'verify_proxy' ORDER BY id LIMIT 1"#)
+    let queued_timeout: i64 = sqlx::query_scalar(r#"SELECT json_extract(input_json, '$.timeout_seconds') FROM tasks WHERE kind = 'verify_proxy' AND json_extract(input_json, '$.verify_batch_id') = ? ORDER BY id LIMIT 1"#)
+        .bind(batch_id)
         .fetch_one(&state.db)
         .await
         .expect("load timeout seconds");
     assert_eq!(queued_timeout, 9);
-    let queued_batch_id: String = sqlx::query_scalar(r#"SELECT json_extract(input_json, '$.verify_batch_id') FROM tasks WHERE kind = 'verify_proxy' ORDER BY id LIMIT 1"#)
+    let queued_batch_id: String = sqlx::query_scalar(r#"SELECT json_extract(input_json, '$.verify_batch_id') FROM tasks WHERE kind = 'verify_proxy' AND json_extract(input_json, '$.verify_batch_id') = ? ORDER BY id LIMIT 1"#)
+        .bind(batch_id)
         .fetch_one(&state.db)
         .await
         .expect("load verify batch id");
-    assert!(queued_batch_id.starts_with("verify-batch-"));
+    assert_eq!(queued_batch_id, batch_id);
 }
 
 

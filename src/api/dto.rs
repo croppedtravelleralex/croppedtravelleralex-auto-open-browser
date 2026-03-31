@@ -349,6 +349,7 @@ pub struct ProxyTrustCacheRepairResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProxyTrustCacheScanItem {
     pub proxy_id: String,
+    pub provider: Option<String>,
     pub cached_trust_score: Option<i64>,
     pub recomputed_trust_score: Option<i64>,
     pub delta: Option<i64>,

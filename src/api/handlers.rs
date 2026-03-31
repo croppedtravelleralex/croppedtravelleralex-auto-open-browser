@@ -688,8 +688,8 @@ async fn collect_trust_cache_scan_items(
 ) -> Result<Vec<ProxyTrustCacheScanItem>, (StatusCode, String)> {
     let now = now_ts_string();
     let trust_sql = crate::network_identity::proxy_selection::proxy_trust_score_sql_with_tuning(&state.proxy_selection_tuning);
-    let rows = sqlx::query_as::<_, (String, Option<i64>, Option<String>, Option<i64>)>(&format!(
-        "SELECT id, cached_trust_score, trust_score_cached_at, CAST(({}) AS INTEGER) FROM proxies ORDER BY created_at ASC, id ASC",
+    let rows = sqlx::query_as::<_, (String, Option<String>, Option<i64>, Option<String>, Option<i64>)>(&format!(
+        "SELECT id, provider, cached_trust_score, trust_score_cached_at, CAST(({}) AS INTEGER) FROM proxies ORDER BY created_at ASC, id ASC",
         trust_sql
     ))
     .bind(&now)
@@ -699,7 +699,7 @@ async fn collect_trust_cache_scan_items(
     .await
     .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to scan trust cache: {err}")))?;
 
-    Ok(rows.into_iter().map(|(proxy_id, cached_trust_score, cached_at, recomputed_trust_score)| {
+    Ok(rows.into_iter().map(|(proxy_id, provider, cached_trust_score, cached_at, recomputed_trust_score)| {
         let delta = match (cached_trust_score, recomputed_trust_score) {
             (Some(cached), Some(recomputed)) => Some(recomputed - cached),
             _ => None,
@@ -707,6 +707,7 @@ async fn collect_trust_cache_scan_items(
         let in_sync = delta.unwrap_or(0) == 0;
         ProxyTrustCacheScanItem {
             proxy_id,
+            provider,
             cached_trust_score,
             recomputed_trust_score,
             delta,
@@ -724,7 +725,7 @@ fn apply_trust_cache_scan_filters(
         items.retain(|item| !item.in_sync);
     }
     if let Some(provider) = query.provider.as_deref() {
-        items.retain(|item| item.proxy_id.contains(provider));
+        items.retain(|item| item.provider.as_deref() == Some(provider));
     }
     if let Some(limit) = query.limit {
         items.truncate(limit);

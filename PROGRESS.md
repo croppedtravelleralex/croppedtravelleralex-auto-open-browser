@@ -84,6 +84,7 @@
 - **2026年03月31日 20时37分00秒** 实现了**explain 链 cache-first 收口第一版**功能，check / repair / explain 复用缓存读取并减少重复查询。
 - **2026年03月31日 20时43分00秒** 实现了**trust cache maintenance 运维入口第一版**功能，可一键执行 scan → repair → rescan。
 - **2026年03月31日 20时53分00秒** 实现了**trust cache scan / maintenance 过滤参数第一版**功能，支持 limit、only_drifted 与 provider 过滤。
+- **2026年03月31日 21时04分00秒** 实现了**trust cache provider 真字段过滤**功能，scan/repair/maintenance 的 provider 过滤已不再依赖 proxy_id 占位匹配。
 
 ---
 
