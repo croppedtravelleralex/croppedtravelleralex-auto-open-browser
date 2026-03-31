@@ -212,7 +212,8 @@ mod tests {
         assert!(recent_decay.contains("CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - 1800"));
         assert!(provider_weight.contains("HAVING SUM(failure_count) >= SUM(success_count) + 5"));
         let tuned = proxy_selection_order_sql_with_tuning(&default_proxy_selection_tuning());
-        assert!(tuned.contains("COUNT(*) >= 2"));
+        assert!(tuned.contains("provider_risk_snapshots"));
+        assert!(tuned.contains("provider_region_risk_snapshots"));
         let trust = proxy_trust_score_sql_with_tuning(&default_proxy_selection_tuning());
         assert!(trust.contains("last_verify_status = 'ok' THEN 30"));
         assert!(trust.contains("last_verify_at IS NULL THEN 12"));
@@ -361,20 +362,15 @@ pub fn proxy_long_term_weight_sql_with_tuning(tuning: &ProxySelectionTuning) -> 
     )
 }
 
-pub fn provider_long_term_weight_sql_with_tuning(tuning: &ProxySelectionTuning) -> String {
-    format!(
-        "                 CASE
-                   WHEN provider IS NOT NULL AND provider IN (
-                       SELECT provider
-                       FROM proxies
-                       WHERE provider IS NOT NULL
-                       GROUP BY provider
-                       HAVING SUM(failure_count) >= SUM(success_count) + {margin}
+pub fn provider_long_term_weight_sql_with_tuning(_tuning: &ProxySelectionTuning) -> String {
+    "                 CASE
+                   WHEN provider IS NOT NULL AND EXISTS (
+                       SELECT 1 FROM provider_risk_snapshots prs
+                       WHERE prs.provider = proxies.provider
+                         AND prs.risk_hit != 0
                    ) THEN 1
                    ELSE 0
-                 END ASC,",
-        margin = tuning.provider_failure_margin
-    )
+                 END ASC,".to_string()
 }
 
 pub fn proxy_recent_failure_decay_sql_with_tuning(tuning: &ProxySelectionTuning) -> String {
@@ -389,25 +385,16 @@ pub fn proxy_recent_failure_decay_sql_with_tuning(tuning: &ProxySelectionTuning)
     )
 }
 
-pub fn provider_region_recent_failure_decay_sql_with_tuning(tuning: &ProxySelectionTuning) -> String {
-    format!(
-        "                 CASE
-                   WHEN provider IS NOT NULL AND region IS NOT NULL AND (provider, region) IN (
-                       SELECT provider, region
-                       FROM proxies
-                       WHERE provider IS NOT NULL
-                         AND region IS NOT NULL
-                         AND last_verify_status = 'failed'
-                         AND last_verify_at IS NOT NULL
-                         AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - {window}
-                       GROUP BY provider, region
-                       HAVING COUNT(*) >= {count}
+pub fn provider_region_recent_failure_decay_sql_with_tuning(_tuning: &ProxySelectionTuning) -> String {
+    "                 CASE
+                   WHEN provider IS NOT NULL AND region IS NOT NULL AND EXISTS (
+                       SELECT 1 FROM provider_region_risk_snapshots prrs
+                       WHERE prrs.provider = proxies.provider
+                         AND prrs.region = proxies.region
+                         AND prrs.risk_hit != 0
                    ) THEN 1
                    ELSE 0
-                 END ASC,",
-        window = tuning.provider_region_failure_cluster_window_seconds,
-        count = tuning.provider_region_failure_cluster_count
-    )
+                 END ASC,".to_string()
 }
 
 pub fn proxy_selection_order_sql_with_tuning(tuning: &ProxySelectionTuning) -> String {
@@ -476,8 +463,6 @@ pub fn proxy_trust_score_sql_with_tuning(tuning: &ProxySelectionTuning) -> Strin
     let heavy = tuning.recent_failure_heavy_window_seconds;
     let light = tuning.recent_failure_light_window_seconds;
     let provider_margin = tuning.provider_failure_margin;
-    let cluster_window = tuning.provider_region_failure_cluster_window_seconds;
-    let cluster_count = tuning.provider_region_failure_cluster_count;
     let raw_score_weight_tenths = tuning.raw_score_weight_tenths;
     let verify_ok_bonus = tuning.verify_ok_bonus;
     let verify_geo_match_bonus = tuning.verify_geo_match_bonus;
@@ -502,23 +487,23 @@ pub fn proxy_trust_score_sql_with_tuning(tuning: &ProxySelectionTuning) -> Strin
          (CASE WHEN failure_count >= success_count + {individual_margin} THEN 18
                WHEN failure_count > success_count THEN 8
                ELSE 0 END) -
-         (CASE WHEN provider IS NOT NULL AND provider IN (
-                    SELECT provider FROM proxies WHERE provider IS NOT NULL GROUP BY provider HAVING SUM(failure_count) >= SUM(success_count) + {provider_margin}
+         (CASE WHEN provider IS NOT NULL AND EXISTS (
+                    SELECT 1 FROM provider_risk_snapshots prs
+                    WHERE prs.provider = proxies.provider
+                      AND prs.risk_hit != 0
                ) THEN 10 ELSE 0 END) -
-         (CASE WHEN provider IS NOT NULL AND region IS NOT NULL AND (provider, region) IN (
-                    SELECT provider, region FROM proxies
-                    WHERE provider IS NOT NULL AND region IS NOT NULL AND last_verify_status = 'failed' AND last_verify_at IS NOT NULL AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - {cluster_window}
-                    GROUP BY provider, region HAVING COUNT(*) >= {cluster_count}
+         (CASE WHEN provider IS NOT NULL AND region IS NOT NULL AND EXISTS (
+                    SELECT 1 FROM provider_region_risk_snapshots prrs
+                    WHERE prrs.provider = proxies.provider
+                      AND prrs.region = proxies.region
+                      AND prrs.risk_hit != 0
                ) THEN 12 ELSE 0 END) +
          CAST(score * {raw_score_weight_tenths} AS INTEGER)",
         stale = stale,
         heavy = heavy,
         light = light,
         individual_margin = individual_margin,
-        provider_margin = provider_margin,
-        cluster_window = cluster_window,
-        cluster_count = cluster_count,
-        raw_score_weight_tenths = raw_score_weight_tenths,
+                raw_score_weight_tenths = raw_score_weight_tenths,
         verify_ok_bonus = verify_ok_bonus,
         verify_geo_match_bonus = verify_geo_match_bonus,
         smoke_upstream_ok_bonus = smoke_upstream_ok_bonus,

@@ -84,7 +84,6 @@ async fn load_proxy_trust_score(state: &AppState, proxy_id: &str, now: &str) -> 
         .bind(now)
         .bind(now)
         .bind(now)
-        .bind(now)
         .bind(proxy_id)
         .fetch_optional(&state.db)
         .await?;
@@ -263,7 +262,6 @@ async fn compute_top_candidate_component_map(
         .bind(now)
         .bind(now)
         .bind(now)
-        .bind(now)
         .fetch_all(&state.db).await?;
     let mut map = std::collections::HashMap::new();
     for id in ids {
@@ -291,13 +289,11 @@ pub async fn compute_candidate_preview_with_reasons(
         .bind(now)
         .bind(now)
         .bind(now)
-        .bind(now)
         .bind(provider)
         .bind(provider)
         .bind(region)
         .bind(region)
         .bind(min_score)
-        .bind(now)
         .bind(now)
         .bind(now)
         .bind(now)
