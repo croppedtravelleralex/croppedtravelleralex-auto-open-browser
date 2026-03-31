@@ -1720,11 +1720,18 @@ async fn verify_batch_enqueues_verify_proxy_tasks() {
     assert_eq!(batch_json.get("provider_summary").and_then(|v| v.as_array()).map(|v| v.len()), Some(1));
 
     let batch_id = batch_json.get("batch_id").and_then(|v| v.as_str()).expect("batch id");
-    let queued_verify_tasks: i64 = sqlx::query_scalar(r#"SELECT COUNT(*) FROM tasks WHERE kind = 'verify_proxy' AND status = 'queued' AND json_extract(input_json, '$.verify_batch_id') = ?"#)
-        .bind(batch_id)
-        .fetch_one(&state.db)
-        .await
-        .expect("count verify tasks for batch");
+    let mut queued_verify_tasks = 0_i64;
+    for _ in 0..8 {
+        queued_verify_tasks = sqlx::query_scalar(r#"SELECT COUNT(*) FROM tasks WHERE kind = 'verify_proxy' AND status = 'queued' AND json_extract(input_json, '$.verify_batch_id') = ?"#)
+            .bind(batch_id)
+            .fetch_one(&state.db)
+            .await
+            .expect("count verify tasks for batch");
+        if queued_verify_tasks == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     assert_eq!(queued_verify_tasks, 2);
     let queued_timeout: i64 = sqlx::query_scalar(r#"SELECT json_extract(input_json, '$.timeout_seconds') FROM tasks WHERE kind = 'verify_proxy' AND json_extract(input_json, '$.verify_batch_id') = ? ORDER BY id LIMIT 1"#)
         .bind(batch_id)
