@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::{
     db::init::DbPool,
     queue::memory::MemoryTaskQueue,
+    network_identity::proxy_selection::ProxySelectionTuning,
     runner::TaskRunner,
 };
 
@@ -13,4 +14,5 @@ pub struct AppState {
     pub api_key: Option<String>,
     pub runner: Arc<dyn TaskRunner>,
     pub worker_count: usize,
+    pub proxy_selection_tuning: ProxySelectionTuning,
 }

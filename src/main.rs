@@ -5,6 +5,7 @@ use axum::serve;
 use tokio::net::TcpListener;
 
 use AutoOpenBrowser::{
+    network_identity::proxy_selection::proxy_selection_tuning_from_env,
     api::routes::build_router,
     app::state::AppState,
     db::init::init_db,
@@ -37,6 +38,7 @@ async fn main() -> Result<()> {
         api_key,
         runner: runner.clone(),
         worker_count,
+        proxy_selection_tuning: proxy_selection_tuning_from_env(),
     };
 
     spawn_runner_workers(state.clone(), runner, worker_count).await;

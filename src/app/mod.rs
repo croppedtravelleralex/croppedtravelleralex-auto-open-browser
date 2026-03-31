@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::{
     db::init::DbPool,
     queue::memory::MemoryTaskQueue,
+    network_identity::proxy_selection::proxy_selection_tuning_from_env,
     runner::TaskRunner,
 };
 
@@ -22,5 +23,6 @@ pub fn build_app_state(
         api_key,
         runner,
         worker_count,
+        proxy_selection_tuning: proxy_selection_tuning_from_env(),
     }
 }

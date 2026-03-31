@@ -272,3 +272,17 @@
 当前这一步的意义不在于已经完全开放配置，而在于：
 
 **策略阈值已经开始从“散落的硬编码常量”变成“有明确参数面的规则系统”。**
+
+
+## 环境变量覆盖（当前已支持）
+
+当前默认 tuning 已支持通过环境变量做覆盖：
+
+- `AOB_PROXY_STALE_AFTER_SECONDS`
+- `AOB_PROXY_RECENT_FAILURE_HEAVY_WINDOW_SECONDS`
+- `AOB_PROXY_RECENT_FAILURE_LIGHT_WINDOW_SECONDS`
+- `AOB_PROXY_PROVIDER_FAILURE_MARGIN`
+- `AOB_PROXY_PROVIDER_REGION_CLUSTER_WINDOW_SECONDS`
+- `AOB_PROXY_PROVIDER_REGION_CLUSTER_COUNT`
+
+这意味着策略层已经不只是在代码里持有默认参数，也开始具备最小可行的“可切换 / 可注入”入口。

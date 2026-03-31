@@ -165,6 +165,8 @@ mod tests {
         let tuning = default_proxy_selection_tuning();
         assert_eq!(tuning.stale_after_seconds, 3600);
         assert_eq!(tuning.provider_region_failure_cluster_count, 2);
+        let env_tuning = proxy_selection_tuning_from_env();
+        assert!(env_tuning.stale_after_seconds > 0);
         assert_eq!(rules.len(), 4);
         assert!(rules.iter().any(|r| r.tier == ProxySelectionTier::HardFilter));
         assert!(rules.iter().any(|r| r.tier == ProxySelectionTier::StrongPositiveSignal));
@@ -361,4 +363,28 @@ pub fn proxy_selection_order_sql_with_tuning(tuning: &ProxySelectionTuning) -> S
         .replace("{provider_long_term_weight}", &provider_long_term_weight_sql_with_tuning(tuning))
         .replace("{long_term_weight}", &proxy_long_term_weight_sql_with_tuning(tuning))
         .replace("{stale_after_seconds}", &tuning.stale_after_seconds.to_string())
+}
+
+
+pub fn proxy_selection_tuning_from_env() -> ProxySelectionTuning {
+    let mut tuning = default_proxy_selection_tuning();
+    if let Ok(value) = std::env::var("AOB_PROXY_STALE_AFTER_SECONDS") {
+        if let Ok(parsed) = value.parse::<i64>() { tuning.stale_after_seconds = parsed; }
+    }
+    if let Ok(value) = std::env::var("AOB_PROXY_RECENT_FAILURE_HEAVY_WINDOW_SECONDS") {
+        if let Ok(parsed) = value.parse::<i64>() { tuning.recent_failure_heavy_window_seconds = parsed; }
+    }
+    if let Ok(value) = std::env::var("AOB_PROXY_RECENT_FAILURE_LIGHT_WINDOW_SECONDS") {
+        if let Ok(parsed) = value.parse::<i64>() { tuning.recent_failure_light_window_seconds = parsed; }
+    }
+    if let Ok(value) = std::env::var("AOB_PROXY_PROVIDER_FAILURE_MARGIN") {
+        if let Ok(parsed) = value.parse::<i64>() { tuning.provider_failure_margin = parsed; }
+    }
+    if let Ok(value) = std::env::var("AOB_PROXY_PROVIDER_REGION_CLUSTER_WINDOW_SECONDS") {
+        if let Ok(parsed) = value.parse::<i64>() { tuning.provider_region_failure_cluster_window_seconds = parsed; }
+    }
+    if let Ok(value) = std::env::var("AOB_PROXY_PROVIDER_REGION_CLUSTER_COUNT") {
+        if let Ok(parsed) = value.parse::<i64>() { tuning.provider_region_failure_cluster_count = parsed; }
+    }
+    tuning
 }
