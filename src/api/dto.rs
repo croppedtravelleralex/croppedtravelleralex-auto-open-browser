@@ -114,6 +114,7 @@ pub struct TaskResponse {
     pub proxy_resolution_status: Option<String>,
     pub trust_score_total: Option<i64>,
     pub selection_reason_summary: Option<String>,
+    pub winner_vs_runner_up_diff: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

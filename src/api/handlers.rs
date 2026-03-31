@@ -378,6 +378,17 @@ fn trust_score_total(result_json: Option<&str>) -> Option<i64> {
         .and_then(|value| value.as_i64())
 }
 
+fn winner_vs_runner_up_diff(result_json: Option<&str>) -> Option<serde_json::Value> {
+    let parsed = result_json.and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())?;
+    parsed.get("payload")
+        .and_then(|value| value.get("network_policy_json"))
+        .and_then(|value| value.get("candidate_rank_preview"))
+        .and_then(|value| value.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|value| value.get("winner_vs_runner_up_diff"))
+        .cloned()
+}
+
 fn build_proxy_metrics(tasks: &[TaskResponse]) -> ProxyMetricsResponse {
     let mut metrics = ProxyMetricsResponse { direct: 0, resolved: 0, resolved_sticky: 0, unresolved: 0, none: 0 };
     for task in tasks {
@@ -586,6 +597,7 @@ pub async fn status(
             let (proxy_id, proxy_provider, proxy_region) = proxy_identity(result_json.as_deref());
             let trust_score_total = trust_score_total(result_json.as_deref());
             let selection_reason_summary = selection_reason_summary(result_json.as_deref());
+            let winner_vs_runner_up_diff = winner_vs_runner_up_diff(result_json.as_deref());
             TaskResponse {
                 fingerprint_resolution_status: fingerprint_resolution_status(
                     fingerprint_profile_id.as_deref(),
@@ -598,6 +610,7 @@ pub async fn status(
                 proxy_resolution_status,
                 trust_score_total,
                 selection_reason_summary,
+                winner_vs_runner_up_diff,
                 id,
                 kind,
                 status,
@@ -1000,6 +1013,7 @@ pub async fn create_task(
             proxy_resolution_status: payload.network_policy_json.as_ref().and_then(|v| v.get("mode")).and_then(|v| v.as_str()).map(|mode| if mode == "direct" { "direct".to_string() } else { "pending".to_string() }),
             trust_score_total: None,
             selection_reason_summary: None,
+            winner_vs_runner_up_diff: None,
         }),
     ))
 }
@@ -1031,6 +1045,7 @@ pub async fn get_task(
             let (proxy_id, proxy_provider, proxy_region) = proxy_identity(result_json.as_deref());
             let trust_score_total = trust_score_total(result_json.as_deref());
             let selection_reason_summary = selection_reason_summary(result_json.as_deref());
+            let winner_vs_runner_up_diff = winner_vs_runner_up_diff(result_json.as_deref());
             Ok(Json(TaskResponse {
                 fingerprint_resolution_status: fingerprint_resolution_status(
                     fingerprint_profile_id.as_deref(),
@@ -1043,6 +1058,7 @@ pub async fn get_task(
                 proxy_resolution_status,
                 trust_score_total,
                 selection_reason_summary,
+                winner_vs_runner_up_diff,
                 id,
                 kind,
                 status,

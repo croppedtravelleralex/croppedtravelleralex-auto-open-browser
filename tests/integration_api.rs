@@ -2567,6 +2567,7 @@ async fn auto_selection_result_exposes_trust_score_components_and_candidate_prev
     assert_eq!(task_json.get("proxy_id").and_then(|v| v.as_str()), Some("proxy-explain-best"));
     assert!(task_json.get("selection_reason_summary").and_then(|v| v.as_str()).unwrap_or("").contains("trust score"));
     assert!(task_json.get("trust_score_total").and_then(|v| v.as_i64()).is_some());
+    assert!(task_json.get("winner_vs_runner_up_diff").is_some());
 
     let result_json_text: Option<String> = sqlx::query_scalar(r#"SELECT result_json FROM tasks WHERE id = ?"#)
         .bind(&task_id)
