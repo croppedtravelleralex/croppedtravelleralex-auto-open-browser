@@ -632,18 +632,25 @@ pub async fn status(
     }))
 }
 
+async fn load_cached_trust_score_row(
+    state: &AppState,
+    proxy_id: &str,
+) -> Result<Option<(Option<i64>, Option<String>)>, (StatusCode, String)> {
+    sqlx::query_as::<_, (Option<i64>, Option<String>)>(
+        "SELECT cached_trust_score, trust_score_cached_at FROM proxies WHERE id = ?"
+    )
+    .bind(proxy_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to load cached trust score: {err}")))
+}
+
 pub async fn check_proxy_trust_cache(
     State(state): State<AppState>,
     Path(proxy_id): Path<String>,
 ) -> Result<Json<ProxyTrustCacheCheckResponse>, (StatusCode, String)> {
     let now = now_ts_string();
-    let cached_row = sqlx::query_as::<_, (Option<i64>, Option<String>)>(
-        "SELECT cached_trust_score, trust_score_cached_at FROM proxies WHERE id = ?"
-    )
-    .bind(&proxy_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to load cached trust score: {err}")))?;
+    let cached_row = load_cached_trust_score_row(&state, &proxy_id).await?;
     let Some((cached_trust_score, cached_at)) = cached_row else {
         return Err((StatusCode::NOT_FOUND, format!("proxy not found: {proxy_id}")));
     };
@@ -760,13 +767,9 @@ pub async fn repair_proxy_trust_cache(
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to refresh cached trust score: {err}")))?;
 
     let now = now_ts_string();
-    let cached_row = sqlx::query_as::<_, (Option<i64>, Option<String>)>(
-        "SELECT cached_trust_score, trust_score_cached_at FROM proxies WHERE id = ?"
-    )
-    .bind(&proxy_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to reload cached trust score: {err}")))?;
+    let cached_row = load_cached_trust_score_row(&state, &proxy_id)
+        .await?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("proxy not found after repair: {proxy_id}")))?;
 
     let recomputed_trust_score = sqlx::query_scalar::<_, i64>(&format!(
         "SELECT CAST(({}) AS INTEGER) FROM proxies WHERE id = ?",
@@ -840,19 +843,18 @@ pub async fn explain_proxy_selection(
         provider_region_cluster_hit != 0,
         now_ts,
     );
-    let trust_score_total = sqlx::query_scalar::<_, i64>("SELECT COALESCE(cached_trust_score, 0) FROM proxies WHERE id = ?")
-        .bind(&proxy_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to compute trust score: {err}")))?;
+    let cached_row = load_cached_trust_score_row(&state, &proxy_id).await?;
+    let trust_score_total = cached_row.as_ref().and_then(|row| row.0);
     let candidate_rank_preview = crate::runner::engine::compute_candidate_preview_with_reasons(&state, &now, None, None, 0.0_f64)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to build candidate preview with reasons: {err}")))?;
 
+    let cached_at = cached_row.as_ref().and_then(|row| row.1.clone());
     let selection_reason_summary = format!(
-        "proxy {} currently scores {:?}; verify_status={:?}, geo_match={}, upstream_ok={}, provider_risk={}, provider_region_cluster={}",
+        "proxy {} currently scores {:?} (cache_at={:?}); verify_status={:?}, geo_match={}, upstream_ok={}, provider_risk={}, provider_region_cluster={}",
         id,
         trust_score_total,
+        cached_at,
         last_verify_status,
         last_verify_geo_match_ok.unwrap_or(0) != 0,
         last_smoke_upstream_ok.unwrap_or(0) != 0,
