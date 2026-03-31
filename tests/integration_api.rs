@@ -2594,6 +2594,8 @@ async fn auto_selection_result_exposes_trust_score_components_and_candidate_prev
     let summary = preview[0].get("summary").and_then(|v| v.as_str()).unwrap_or("");
     assert!(!summary.is_empty());
     assert!(summary.contains("wins on") || summary.contains("penalized by") || summary.contains("better on") || summary.contains("worse on"));
+    assert!(!summary.contains("verify_ok_bonus"));
+    assert!(!summary.contains("provider_region_cluster_penalty"));
 }
 
 #[tokio::test]

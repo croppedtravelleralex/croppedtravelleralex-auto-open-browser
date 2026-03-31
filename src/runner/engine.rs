@@ -259,12 +259,13 @@ pub fn summarize_component_delta(current: &Value, baseline: Option<&Value>) -> S
     ] {
         let cv = c.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
         let bv = b.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
+        let label = component_label(key);
         if ["verify_ok_bonus", "verify_geo_match_bonus", "smoke_upstream_ok_bonus", "raw_score_component"].contains(&key) {
-            if cv > bv { better.push(key); }
-            else if cv < bv { worse.push(key); }
+            if cv > bv { better.push(label); }
+            else if cv < bv { worse.push(label); }
         } else {
-            if cv < bv { better.push(key); }
-            else if cv > bv { worse.push(key); }
+            if cv < bv { better.push(label); }
+            else if cv > bv { worse.push(label); }
         }
     }
     let mut parts = Vec::new();
