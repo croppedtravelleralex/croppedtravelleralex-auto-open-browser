@@ -83,3 +83,5 @@
 - **API / 运维文档第一版已补齐**，当前 endpoint surface、smoke 返回字段、proxy 持久化验证信号、runner 调参项与当前运维建议已集中整理进 `docs/api-ops.md`。
 
 - **batch verify / 定期巡检方案已起草**，建议下一步不要做同步大循环，而是把单代理 `verify` 复用为 `verify_proxy` 任务，再由 `POST /proxies/verify-batch` 负责批量投递。
+
+- **verify / selection / batch verify 说明文档已补齐**，当前 smoke 与 verify 分工、proxy 选择优先级、sticky 行为和 batch verify 设计口径已集中整理进 `docs/proxy-verification-reference.md`。

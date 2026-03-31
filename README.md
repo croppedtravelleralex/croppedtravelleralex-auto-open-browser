@@ -178,3 +178,8 @@ Task and status observability also surface proxy resolution state via:
 ## API / Ops reference
 
 See `docs/api-ops.md` for the current endpoint surface, smoke response fields, persisted proxy verification fields, runner tuning variables, and current ops guidance.
+
+
+## Proxy verification reference
+
+See `docs/proxy-verification-reference.md` for the current smoke / verify responsibilities, writeback fields, selection priority rules, sticky behavior, and planned batch verify model.
