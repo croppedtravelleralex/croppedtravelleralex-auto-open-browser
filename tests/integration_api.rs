@@ -2609,6 +2609,7 @@ async fn auto_selection_result_exposes_trust_score_components_and_candidate_prev
     let summary = preview[0].get("summary").and_then(|v| v.as_str()).unwrap_or("");
     assert!(!summary.is_empty());
     assert!(summary.contains("wins on") || summary.contains("penalized by") || summary.contains("better on") || summary.contains("worse on"));
+    assert!(summary.contains("verify_ok") || summary.contains("geo_match") || summary.contains("upstream_ok") || summary.contains("raw_score") || summary.contains("provider_risk") || summary.contains("provider_region_risk") || summary.contains("history_risk") || summary.contains("stale_verify") || summary.contains("missing_verify"));
     assert!(!summary.contains("verify_ok_bonus"));
     assert!(!summary.contains("provider_region_cluster_penalty"));
 }
