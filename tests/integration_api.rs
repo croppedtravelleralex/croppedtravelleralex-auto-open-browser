@@ -2654,3 +2654,66 @@ async fn execution_feedback_updates_proxy_score() {
     let score_after_success: f64 = sqlx::query_scalar("SELECT score FROM proxies WHERE id = 'proxy-feedback-1'").fetch_one(&state.db).await.expect("score after success");
     assert!(score_after_success > 0.50);
 }
+
+
+#[tokio::test]
+async fn proxy_explain_endpoint_returns_components_and_preview() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, last_smoke_status, last_smoke_protocol_ok, last_smoke_upstream_ok, last_exit_ip, last_anonymity_level, last_smoke_at, last_verify_status, last_verify_geo_match_ok, last_exit_country, last_exit_region, last_verify_at, created_at, updated_at)
+                  VALUES ('proxy-explain-endpoint', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'pool-e', 'active', 0.77, 5, 1, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, 'ok', 1, 'US', 'Virginia', '9999999999', '1', '1')"#)
+        .execute(&state.db)
+        .await
+        .expect("insert proxy");
+
+    let (status, json) = json_response(
+        &app,
+        Request::builder().uri("/proxies/proxy-explain-endpoint/explain").body(Body::empty()).expect("request"),
+    ).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json.get("proxy_id").and_then(|v| v.as_str()), Some("proxy-explain-endpoint"));
+    assert!(json.get("trust_score_components").and_then(|v| v.get("verify_ok_bonus")).and_then(|v| v.as_i64()).is_some());
+    assert!(json.get("candidate_rank_preview").and_then(|v| v.as_array()).map(|v| !v.is_empty()).unwrap_or(false));
+}
+
+#[tokio::test]
+async fn verify_probe_updates_proxy_score_via_score_delta() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    tokio::spawn(async move {
+        if let Ok((mut socket, _)) = listener.accept().await {
+            let mut buf = [0_u8; 1024];
+            let _ = socket.read(&mut buf).await;
+            let response = b"HTTP/1.1 200 Connection Established
+ip=203.0.113.8
+country=US
+region=Virginia
+
+";
+            let _ = socket.write_all(response).await;
+        }
+    });
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, created_at, updated_at)
+                  VALUES (?, 'http', ?, ?, NULL, NULL, 'us-east', 'US', 'pool-v', 'active', 0.50, 0, 0, NULL, NULL, NULL, '1', '1')"#)
+        .bind("proxy-verify-score")
+        .bind(addr.ip().to_string())
+        .bind(i64::from(addr.port()))
+        .execute(&state.db)
+        .await
+        .expect("insert proxy");
+
+    let before: f64 = sqlx::query_scalar("SELECT score FROM proxies WHERE id = 'proxy-verify-score'").fetch_one(&state.db).await.expect("before score");
+    let (status, json) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/proxies/proxy-verify-score/verify").body(Body::empty()).expect("request"),
+    ).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("ok"));
+    let after: f64 = sqlx::query_scalar("SELECT score FROM proxies WHERE id = 'proxy-verify-score'").fetch_one(&state.db).await.expect("after score");
+    assert!(after > before);
+}

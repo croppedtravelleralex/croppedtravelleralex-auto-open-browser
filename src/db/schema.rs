@@ -59,7 +59,12 @@ CREATE TABLE IF NOT EXISTS logs (
 );
 "#;
 
-pub const ALL_SCHEMA_SQL: [&str; 12] = [
+pub const CREATE_PROXIES_PROVIDER_REGION_VERIFY_INDEX_SQL: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_proxies_provider_region_verify
+ON proxies(provider, region, last_verify_status, last_verify_at);
+"#;
+
+pub const ALL_SCHEMA_SQL: [&str; 13] = [
     CREATE_TASKS_TABLE_SQL,
     CREATE_RUNS_TABLE_SQL,
     CREATE_ARTIFACTS_TABLE_SQL,
@@ -72,6 +77,7 @@ pub const ALL_SCHEMA_SQL: [&str; 12] = [
     CREATE_PROXIES_VERIFY_STATE_INDEX_SQL,
     CREATE_VERIFY_BATCHES_CREATED_AT_INDEX_SQL,
     CREATE_TASKS_KIND_STATUS_INDEX_SQL,
+    CREATE_PROXIES_PROVIDER_REGION_VERIFY_INDEX_SQL,
 ];
 
 

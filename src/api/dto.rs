@@ -310,3 +310,13 @@ pub struct VerifyBatchListQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxySelectionExplainResponse {
+    pub proxy_id: String,
+    pub trust_score_total: Option<i64>,
+    pub selection_reason_summary: String,
+    pub trust_score_components: serde_json::Value,
+    pub candidate_rank_preview: Vec<serde_json::Value>,
+}

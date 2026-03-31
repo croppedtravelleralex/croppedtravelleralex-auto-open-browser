@@ -22,7 +22,7 @@ use crate::{
 use super::dto::{
     CancelTaskResponse, CreateFingerprintProfileRequest, CreateProxyRequest, CreateTaskRequest,
     FingerprintMetricsResponse, FingerprintProfileResponse, HealthResponse, LogResponse,
-    PaginationQuery, ProxyMetricsResponse, ProxyResponse, ProxySmokeResponse, ProxyVerifyBatchProviderSummary, ProxyVerifyBatchRequest, ProxyVerifyBatchResponse, ProxyVerifyResponse, RetryTaskResponse, VerifyBatchListQuery, VerifyBatchResponse, VerifyMetricsResponse,
+    PaginationQuery, ProxyMetricsResponse, ProxyResponse, ProxySelectionExplainResponse, ProxySmokeResponse, ProxyVerifyBatchProviderSummary, ProxyVerifyBatchRequest, ProxyVerifyBatchResponse, ProxyVerifyResponse, RetryTaskResponse, VerifyBatchListQuery, VerifyBatchResponse, VerifyMetricsResponse,
     RunResponse, StatusResponse, TaskResponse, TaskStatusCounts, WorkerStatusResponse,
 };
 
@@ -189,7 +189,7 @@ Host: verify.example:443
     );
     let verify_source = Some("local_verify".to_string());
     let now = now_ts_string();
-    sqlx::query(r#"UPDATE proxies SET last_checked_at = ?, last_verify_status = ?, last_verify_geo_match_ok = ?, last_exit_ip = ?, last_exit_country = ?, last_exit_region = ?, last_anonymity_level = ?, last_verify_at = ?, last_probe_latency_ms = ?, last_probe_error = ?, last_probe_error_category = ?, last_verify_confidence = ?, last_verify_score_delta = ?, last_verify_source = ?, updated_at = ? WHERE id = ?"#)
+    sqlx::query(r#"UPDATE proxies SET last_checked_at = ?, last_verify_status = ?, last_verify_geo_match_ok = ?, last_exit_ip = ?, last_exit_country = ?, last_exit_region = ?, last_anonymity_level = ?, last_verify_at = ?, last_probe_latency_ms = ?, last_probe_error = ?, last_probe_error_category = ?, last_verify_confidence = ?, last_verify_score_delta = ?, last_verify_source = ?, score = MAX(0.0, score + (? / 100.0)), updated_at = ? WHERE id = ?"#)
         .bind(&now)
         .bind(status)
         .bind(geo_match_ok.map(|v| if v { 1_i64 } else { 0_i64 }))
@@ -204,6 +204,7 @@ Host: verify.example:443
         .bind(verification_confidence)
         .bind(verification_score_delta)
         .bind(&verify_source)
+        .bind(verification_score_delta.unwrap_or(0) as f64)
         .bind(&now)
         .bind(proxy_id)
         .execute(&state.db)
@@ -607,6 +608,97 @@ pub async fn status(
         proxy_metrics,
         verify_metrics,
         latest_tasks,
+    }))
+}
+
+pub async fn explain_proxy_selection(
+    State(state): State<AppState>,
+    Path(proxy_id): Path<String>,
+) -> Result<Json<ProxySelectionExplainResponse>, (StatusCode, String)> {
+    let now = now_ts_string();
+    let trust_sql = crate::network_identity::proxy_selection::proxy_trust_score_sql_with_tuning(&state.proxy_selection_tuning);
+    let row = sqlx::query_as::<_, (String, Option<String>, Option<String>, f64, i64, i64, Option<String>, Option<i64>, Option<i64>, Option<String>)>(
+        &format!(
+            "SELECT id, provider, region, score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at FROM proxies WHERE id = ?"
+        )
+    )
+    .bind(&proxy_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to load proxy explain row: {err}")))?;
+    let Some((id, _provider, _region, score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at)) = row else {
+        return Err((StatusCode::NOT_FOUND, format!("proxy not found: {proxy_id}")));
+    };
+
+    let provider_risk_query = format!(
+        "SELECT EXISTS(SELECT 1 FROM proxies p WHERE p.id = ? AND p.provider IS NOT NULL AND p.provider IN (SELECT provider FROM proxies WHERE provider IS NOT NULL GROUP BY provider HAVING SUM(failure_count) >= SUM(success_count) + {}))",
+        state.proxy_selection_tuning.provider_failure_margin
+    );
+    let provider_region_query = format!(
+        "SELECT EXISTS(SELECT 1 FROM proxies p WHERE p.id = ? AND p.provider IS NOT NULL AND p.region IS NOT NULL AND (p.provider, p.region) IN (SELECT provider, region FROM proxies WHERE provider IS NOT NULL AND region IS NOT NULL AND last_verify_status = 'failed' AND last_verify_at IS NOT NULL AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - {} GROUP BY provider, region HAVING COUNT(*) >= {}))",
+        state.proxy_selection_tuning.provider_region_failure_cluster_window_seconds,
+        state.proxy_selection_tuning.provider_region_failure_cluster_count
+    );
+    let provider_risk_hit: i64 = sqlx::query_scalar(&provider_risk_query).bind(&proxy_id).fetch_one(&state.db).await.map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to compute provider risk: {err}")))?;
+    let provider_region_cluster_hit: i64 = sqlx::query_scalar(&provider_region_query).bind(&proxy_id).bind(&now).fetch_one(&state.db).await.map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to compute provider region risk: {err}")))?;
+    let now_ts = now.parse::<i64>().unwrap_or_default();
+    let components = super::super::runner::engine::computed_trust_score_components(
+        &state.proxy_selection_tuning,
+        score,
+        success_count,
+        failure_count,
+        last_verify_status.as_deref(),
+        last_verify_geo_match_ok.unwrap_or(0) != 0,
+        last_smoke_upstream_ok.unwrap_or(0) != 0,
+        last_verify_at.and_then(|v| v.parse::<i64>().ok()),
+        provider_risk_hit != 0,
+        provider_region_cluster_hit != 0,
+        now_ts,
+    );
+    let trust_score_total = sqlx::query_scalar::<_, i64>(&format!("SELECT CAST(({}) AS INTEGER) FROM proxies WHERE id = ?", trust_sql))
+        .bind(&now).bind(&now).bind(&now).bind(&now).bind(&proxy_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to compute trust score: {err}")))?;
+    let candidate_rows = sqlx::query_as::<_, (String, Option<String>, Option<String>, f64, i64)>(
+        &format!(
+            "SELECT id, provider, region, score, CAST(({}) AS INTEGER) AS trust_score_total FROM proxies WHERE status = 'active' ORDER BY {} LIMIT 3",
+            trust_sql,
+            crate::network_identity::proxy_selection::proxy_selection_order_by_trust_score_sql_with_tuning(&state.proxy_selection_tuning)
+        )
+    )
+    .bind(&now).bind(&now).bind(&now).bind(&now)
+    .bind(&now).bind(Option::<String>::None).bind(Option::<String>::None).bind(Option::<String>::None).bind(Option::<String>::None).bind(0.0_f64)
+    .bind(&now).bind(&now).bind(&now).bind(&now)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to load candidate preview: {err}")))?;
+    let candidate_rank_preview = candidate_rows.into_iter().map(|(id, provider, region, score, trust_score_total)| serde_json::json!({
+        "id": id,
+        "provider": provider,
+        "region": region,
+        "score": score,
+        "trust_score_total": trust_score_total,
+        "summary": format!("trust_score_total={} vs raw_score={:.2}", trust_score_total, score),
+    })).collect::<Vec<_>>();
+
+    let selection_reason_summary = format!(
+        "proxy {} currently scores {:?}; verify_status={:?}, geo_match={}, upstream_ok={}, provider_risk={}, provider_region_cluster={}",
+        id,
+        trust_score_total,
+        last_verify_status,
+        last_verify_geo_match_ok.unwrap_or(0) != 0,
+        last_smoke_upstream_ok.unwrap_or(0) != 0,
+        provider_risk_hit != 0,
+        provider_region_cluster_hit != 0,
+    );
+
+    Ok(Json(ProxySelectionExplainResponse {
+        proxy_id: id,
+        trust_score_total,
+        selection_reason_summary,
+        trust_score_components: components,
+        candidate_rank_preview,
     }))
 }
 

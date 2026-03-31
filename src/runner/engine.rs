@@ -101,7 +101,7 @@ fn selection_reason_summary_for_mode(mode: &str, trust_score_total: Option<i64>)
     }
 }
 
-fn computed_trust_score_components(
+pub fn computed_trust_score_components(
     tuning: &crate::network_identity::proxy_selection::ProxySelectionTuning,
     score: f64,
     success_count: i64,
@@ -220,7 +220,7 @@ async fn preview_auto_candidates(
             "region": region,
             "score": score,
             "trust_score_total": trust_score_total,
-            "summary": format!("trust_score_total={} vs raw_score={:.2}", trust_score_total, score),
+            "summary": format!("trust_score_total={} vs raw_score={:.2}; {}", trust_score_total, score, if trust_score_total >= ((score * 10.0).floor() as i64) { "trust signals dominate" } else { "raw score dominates" }),
         }));
     }
     Ok(out)
