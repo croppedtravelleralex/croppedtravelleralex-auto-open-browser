@@ -862,7 +862,7 @@ pub async fn explain_proxy_selection(
     Path(proxy_id): Path<String>,
 ) -> Result<Json<ProxySelectionExplainResponse>, (StatusCode, String)> {
     let now = now_ts_string();
-        let row = sqlx::query_as::<_, (String, Option<String>, Option<String>, f64, i64, i64, Option<String>, Option<i64>, Option<i64>, Option<String>)>(
+    let row = sqlx::query_as::<_, (String, Option<String>, Option<String>, f64, i64, i64, Option<String>, Option<i64>, Option<i64>, Option<String>)>(
         &format!(
             "SELECT id, provider, region, score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at FROM proxies WHERE id = ?"
         )

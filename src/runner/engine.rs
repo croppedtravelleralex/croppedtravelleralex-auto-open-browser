@@ -5,7 +5,7 @@ use tokio::{sync::oneshot, task::JoinHandle, time::Duration};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::network_identity::proxy_selection::{apply_proxy_resolution_metadata, proxy_selection_base_where_sql, proxy_selection_order_by_cached_trust_score_sql, proxy_selection_order_by_trust_score_sql_with_tuning, proxy_trust_score_sql_with_tuning, resolved_proxy_json};
+use crate::network_identity::proxy_selection::{apply_proxy_resolution_metadata, proxy_selection_base_where_sql, proxy_selection_order_by_cached_trust_score_sql, proxy_selection_order_by_trust_score_sql_with_tuning, resolved_proxy_json};
 use crate::{
     app::state::AppState,
     db::init::{refresh_cached_trust_score_for_proxy, refresh_cached_trust_scores_for_provider, refresh_cached_trust_scores_for_provider_region, refresh_provider_risk_snapshot_for_provider, refresh_provider_region_risk_snapshot_for_pair},
@@ -75,7 +75,7 @@ fn extract_proxy_selection(payload: &Value) -> Option<RunnerProxySelection> {
     })
 }
 
-async fn load_proxy_trust_score(state: &AppState, proxy_id: &str, now: &str) -> Result<Option<i64>> {
+async fn load_proxy_trust_score(state: &AppState, proxy_id: &str, _now: &str) -> Result<Option<i64>> {
     let value = sqlx::query_scalar::<_, i64>("SELECT cached_trust_score FROM proxies WHERE id = ? LIMIT 1")
         .bind(proxy_id)
         .fetch_optional(&state.db)
