@@ -286,3 +286,12 @@
 - `AOB_PROXY_PROVIDER_REGION_CLUSTER_COUNT`
 
 这意味着策略层已经不只是在代码里持有默认参数，也开始具备最小可行的“可切换 / 可注入”入口。
+
+
+## Trust Score 起点
+
+当前策略层已经开始具备统一 trust score 的最小起点：
+
+- `proxy_trust_score_sql_with_tuning()`
+
+当前它还没有完全接管 selection 排序，但已经把多条正负信号收敛成单一分值表达的第一版骨架，为后续往统一 trust/risk score 模型推进做准备。

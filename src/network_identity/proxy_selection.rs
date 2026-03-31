@@ -192,6 +192,8 @@ mod tests {
         assert!(provider_weight.contains("HAVING SUM(failure_count) >= SUM(success_count) + 5"));
         let tuned = proxy_selection_order_sql_with_tuning(&default_proxy_selection_tuning());
         assert!(tuned.contains("COUNT(*) >= 2"));
+        let trust = proxy_trust_score_sql_with_tuning(&default_proxy_selection_tuning());
+        assert!(trust.contains("last_verify_status = 'ok' THEN 30"));
         assert!(sql.contains("{provider_region_recent_failure_decay}"));
         assert!(sql.contains("{long_term_weight}"));
         assert!(sql.contains("score DESC"));
@@ -387,4 +389,45 @@ pub fn proxy_selection_tuning_from_env() -> ProxySelectionTuning {
         if let Ok(parsed) = value.parse::<i64>() { tuning.provider_region_failure_cluster_count = parsed; }
     }
     tuning
+}
+
+
+pub fn proxy_trust_score_sql_with_tuning(tuning: &ProxySelectionTuning) -> String {
+    let stale = tuning.stale_after_seconds;
+    let heavy = tuning.recent_failure_heavy_window_seconds;
+    let light = tuning.recent_failure_light_window_seconds;
+    let provider_margin = tuning.provider_failure_margin;
+    let cluster_window = tuning.provider_region_failure_cluster_window_seconds;
+    let cluster_count = tuning.provider_region_failure_cluster_count;
+    let individual_margin = provider_margin.saturating_sub(2).max(1);
+    format!(
+        "(CASE WHEN last_verify_status = 'ok' THEN 30 ELSE 0 END) +
+         (CASE WHEN COALESCE(last_verify_geo_match_ok, 0) != 0 THEN 20 ELSE 0 END) +
+         (CASE WHEN COALESCE(last_smoke_upstream_ok, 0) != 0 THEN 10 ELSE 0 END) -
+         (CASE WHEN last_verify_status = 'failed' AND last_verify_at IS NOT NULL AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - {heavy} THEN 30
+               WHEN last_verify_status = 'failed' AND last_verify_at IS NOT NULL AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - {light} THEN 15
+               WHEN last_verify_status = 'failed' THEN 10
+               ELSE 0 END) -
+         (CASE WHEN last_verify_at IS NULL THEN 12
+               WHEN CAST(last_verify_at AS INTEGER) <= CAST(? AS INTEGER) - {stale} THEN 8
+               ELSE 0 END) -
+         (CASE WHEN failure_count >= success_count + {individual_margin} THEN 18
+               WHEN failure_count > success_count THEN 8
+               ELSE 0 END) -
+         (CASE WHEN provider IS NOT NULL AND provider IN (
+                    SELECT provider FROM proxies WHERE provider IS NOT NULL GROUP BY provider HAVING SUM(failure_count) >= SUM(success_count) + {provider_margin}
+               ) THEN 10 ELSE 0 END) -
+         (CASE WHEN provider IS NOT NULL AND region IS NOT NULL AND (provider, region) IN (
+                    SELECT provider, region FROM proxies
+                    WHERE provider IS NOT NULL AND region IS NOT NULL AND last_verify_status = 'failed' AND last_verify_at IS NOT NULL AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - {cluster_window}
+                    GROUP BY provider, region HAVING COUNT(*) >= {cluster_count}
+               ) THEN 12 ELSE 0 END)",
+        stale = stale,
+        heavy = heavy,
+        light = light,
+        individual_margin = individual_margin,
+        provider_margin = provider_margin,
+        cluster_window = cluster_window,
+        cluster_count = cluster_count,
+    )
 }
