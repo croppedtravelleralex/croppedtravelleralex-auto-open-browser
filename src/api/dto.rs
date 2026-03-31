@@ -188,6 +188,11 @@ pub struct ProxyResponse {
     pub last_exit_ip: Option<String>,
     pub last_anonymity_level: Option<String>,
     pub last_smoke_at: Option<String>,
+    pub last_verify_status: Option<String>,
+    pub last_verify_geo_match_ok: Option<bool>,
+    pub last_exit_country: Option<String>,
+    pub last_exit_region: Option<String>,
+    pub last_verify_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

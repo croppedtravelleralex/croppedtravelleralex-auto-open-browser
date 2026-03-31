@@ -108,6 +108,11 @@ CREATE TABLE IF NOT EXISTS proxies (
     last_exit_ip TEXT,
     last_anonymity_level TEXT,
     last_smoke_at TEXT,
+    last_verify_status TEXT,
+    last_verify_geo_match_ok INTEGER,
+    last_exit_country TEXT,
+    last_exit_region TEXT,
+    last_verify_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );

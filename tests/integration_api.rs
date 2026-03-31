@@ -1521,4 +1521,15 @@ region=Virginia
     assert_eq!(verify_json.get("exit_country").and_then(|v| v.as_str()), Some("US"));
     assert_eq!(verify_json.get("exit_region").and_then(|v| v.as_str()), Some("Virginia"));
     assert_eq!(verify_json.get("geo_match_ok").and_then(|v| v.as_bool()), Some(true));
+
+    let (_, proxy_json) = json_response(
+        &app,
+        Request::builder().uri("/proxies/proxy-verify-us").body(Body::empty()).expect("request"),
+    ).await;
+    assert_eq!(proxy_json.get("last_verify_status").and_then(|v| v.as_str()), Some("ok"));
+    assert_eq!(proxy_json.get("last_verify_geo_match_ok").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(proxy_json.get("last_exit_ip").and_then(|v| v.as_str()), Some("198.51.100.10"));
+    assert_eq!(proxy_json.get("last_exit_country").and_then(|v| v.as_str()), Some("US"));
+    assert_eq!(proxy_json.get("last_exit_region").and_then(|v| v.as_str()), Some("Virginia"));
+    assert_eq!(proxy_json.get("last_anonymity_level").and_then(|v| v.as_str()), Some("elite"));
 }

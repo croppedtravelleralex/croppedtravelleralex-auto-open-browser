@@ -71,6 +71,11 @@ struct ProxyRow {
     last_exit_ip: Option<String>,
     last_anonymity_level: Option<String>,
     last_smoke_at: Option<String>,
+    last_verify_status: Option<String>,
+    last_verify_geo_match_ok: Option<i64>,
+    last_exit_country: Option<String>,
+    last_exit_region: Option<String>,
+    last_verify_at: Option<String>,
     created_at: String,
     updated_at: String,
 }
@@ -106,6 +111,11 @@ fn map_proxy_row(row: ProxyRow) -> ProxyResponse {
         last_exit_ip: row.last_exit_ip,
         last_anonymity_level: row.last_anonymity_level,
         last_smoke_at: row.last_smoke_at,
+        last_verify_status: row.last_verify_status,
+        last_verify_geo_match_ok: row.last_verify_geo_match_ok.map(|v| v != 0),
+        last_exit_country: row.last_exit_country,
+        last_exit_region: row.last_exit_region,
+        last_verify_at: row.last_verify_at,
         created_at: row.created_at,
         updated_at: row.updated_at,
     }
@@ -887,7 +897,7 @@ pub async fn create_proxy(
     let now = now_ts_string();
     let status = payload.status.unwrap_or_else(|| "active".to_string());
     let score = payload.score.unwrap_or(1.0);
-    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, last_smoke_status, last_smoke_protocol_ok, last_smoke_upstream_ok, last_exit_ip, last_anonymity_level, last_smoke_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)"#)
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, last_smoke_status, last_smoke_protocol_ok, last_smoke_upstream_ok, last_exit_ip, last_anonymity_level, last_smoke_at, last_verify_status, last_verify_geo_match_ok, last_exit_country, last_exit_region, last_verify_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)"#)
         .bind(&payload.id).bind(&payload.scheme).bind(&payload.host).bind(payload.port)
         .bind(&payload.username).bind(&payload.password).bind(&payload.region).bind(&payload.country).bind(&payload.provider)
         .bind(&status).bind(score).bind(&now).bind(&now)
@@ -899,6 +909,7 @@ pub async fn create_proxy(
         last_checked_at: None, last_used_at: None, cooldown_until: None,
         last_smoke_status: None, last_smoke_protocol_ok: None, last_smoke_upstream_ok: None,
         last_exit_ip: None, last_anonymity_level: None, last_smoke_at: None,
+        last_verify_status: None, last_verify_geo_match_ok: None, last_exit_country: None, last_exit_region: None, last_verify_at: None,
         created_at: now.clone(), updated_at: now,
     })))
 }
@@ -909,7 +920,7 @@ pub async fn list_proxies(
 ) -> Result<Json<Vec<ProxyResponse>>, (StatusCode, String)> {
     let limit = sanitize_limit(query.limit, 20, 200);
     let offset = sanitize_offset(query.offset);
-    let rows = sqlx::query_as::<_, ProxyRow>(r#"SELECT id, scheme, host, port, username, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, last_smoke_status, last_smoke_protocol_ok, last_smoke_upstream_ok, last_exit_ip, last_anonymity_level, last_smoke_at, created_at, updated_at FROM proxies ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"#)
+    let rows = sqlx::query_as::<_, ProxyRow>(r#"SELECT id, scheme, host, port, username, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, last_smoke_status, last_smoke_protocol_ok, last_smoke_upstream_ok, last_exit_ip, last_anonymity_level, last_smoke_at, last_verify_status, last_verify_geo_match_ok, last_exit_country, last_exit_region, last_verify_at, created_at, updated_at FROM proxies ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"#)
         .bind(limit)
         .bind(offset)
         .fetch_all(&state.db)
@@ -922,7 +933,7 @@ pub async fn get_proxy(
     State(state): State<AppState>,
     Path(proxy_id): Path<String>,
 ) -> Result<Json<ProxyResponse>, (StatusCode, String)> {
-    let row = sqlx::query_as::<_, ProxyRow>(r#"SELECT id, scheme, host, port, username, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, last_smoke_status, last_smoke_protocol_ok, last_smoke_upstream_ok, last_exit_ip, last_anonymity_level, last_smoke_at, created_at, updated_at FROM proxies WHERE id = ?"#)
+    let row = sqlx::query_as::<_, ProxyRow>(r#"SELECT id, scheme, host, port, username, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, last_smoke_status, last_smoke_protocol_ok, last_smoke_upstream_ok, last_exit_ip, last_anonymity_level, last_smoke_at, last_verify_status, last_verify_geo_match_ok, last_exit_country, last_exit_region, last_verify_at, created_at, updated_at FROM proxies WHERE id = ?"#)
         .bind(&proxy_id)
         .fetch_optional(&state.db)
         .await
@@ -1136,6 +1147,21 @@ Host: verify.example:443
 
     let latency_ms = Some(started.elapsed().as_millis());
     let status = if reachable && protocol_ok && upstream_ok { "ok" } else { "failed" };
+    let now = now_ts_string();
+    sqlx::query(r#"UPDATE proxies SET last_checked_at = ?, last_verify_status = ?, last_verify_geo_match_ok = ?, last_exit_ip = ?, last_exit_country = ?, last_exit_region = ?, last_anonymity_level = ?, last_verify_at = ?, updated_at = ? WHERE id = ?"#)
+        .bind(&now)
+        .bind(status)
+        .bind(geo_match_ok.map(|v| if v { 1_i64 } else { 0_i64 }))
+        .bind(&exit_ip)
+        .bind(&exit_country)
+        .bind(&exit_region)
+        .bind(&anonymity_level)
+        .bind(&now)
+        .bind(&now)
+        .bind(&proxy_id)
+        .execute(&state.db)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to persist proxy verify result: {err}")))?;
     Ok(Json(ProxyVerifyResponse {
         id: proxy_id,
         reachable,
