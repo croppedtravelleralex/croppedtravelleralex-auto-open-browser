@@ -162,3 +162,5 @@
 - 当前阶段总结文档已形成，后续若继续推进实现，可直接从 `STAGE_SUMMARY_2026-03-31.md` 的下一阶段主线衔接。
 
 - API / 运维文档第一版已落地，后续若继续做对外说明或运维手册，可在 `docs/api-ops.md` 基础上继续细化请求/响应示例。
+
+- `docs/proxy-batch-verify-plan.md` 已写出 batch verify / periodic inspection 方案，推荐采用“批量接口只负责投递 verify task，执行仍走现有队列”的 DB-first 路线。

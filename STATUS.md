@@ -81,3 +81,5 @@
 - **当前阶段总结文档已收口**，`STAGE_SUMMARY_2026-03-31.md` 已整理出本阶段能力、风险、性能判断、代表性提交与下一阶段主线。
 
 - **API / 运维文档第一版已补齐**，当前 endpoint surface、smoke 返回字段、proxy 持久化验证信号、runner 调参项与当前运维建议已集中整理进 `docs/api-ops.md`。
+
+- **batch verify / 定期巡检方案已起草**，建议下一步不要做同步大循环，而是把单代理 `verify` 复用为 `verify_proxy` 任务，再由 `POST /proxies/verify-batch` 负责批量投递。

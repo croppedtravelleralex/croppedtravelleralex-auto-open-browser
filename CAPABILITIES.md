@@ -61,3 +61,9 @@
 - geo match 判定
 - 独立 `verify` 慢路径
 - verification score delta 回写
+
+## 已明确的下一步巡检方向
+- `POST /proxies/verify-batch`
+- `verify_proxy` task kind
+- 周期性 smoke / verify sweep
+- verify metrics summary
