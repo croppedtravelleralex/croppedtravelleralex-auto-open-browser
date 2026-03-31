@@ -149,3 +149,8 @@
   - stale running reclaim 改为批量 `UPDATE ... RETURNING`
   - worker idle backoff 增加轻量 jitter
   - error backoff 增加独立上限控制
+
+- 环境变量与状态暴露文档已收口：
+  - worker 调度相关环境变量：heartbeat / reclaim / claim retry / idle backoff / jitter / error cap
+  - 代理验证相关状态：reachable / protocol_ok / upstream_ok / exit_ip / anonymity_level
+  - proxy 健康模型新增 smoke 写回字段

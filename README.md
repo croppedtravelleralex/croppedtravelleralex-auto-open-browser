@@ -143,3 +143,33 @@ AUTO_OPEN_BROWSER_API_KEY=your-key scripts/smoke_test.sh
 - 持续清理文档，确保描述和代码能力一致
 
 详见 `CURRENT_TASK.md`。
+
+
+## Runtime tuning and proxy verification signals
+
+Key runner environment variables currently supported:
+
+- `AUTO_OPEN_BROWSER_RUNNER_RECLAIM_SECONDS`
+- `AUTO_OPEN_BROWSER_RUNNER_HEARTBEAT_SECONDS`
+- `AUTO_OPEN_BROWSER_RUNNER_CLAIM_RETRY_LIMIT`
+- `AUTO_OPEN_BROWSER_RUNNER_IDLE_BACKOFF_MIN_MS`
+- `AUTO_OPEN_BROWSER_RUNNER_IDLE_BACKOFF_MAX_MS`
+- `AUTO_OPEN_BROWSER_RUNNER_IDLE_BACKOFF_JITTER_MS`
+- `AUTO_OPEN_BROWSER_RUNNER_ERROR_BACKOFF_MAX_MS`
+
+Proxy verification signals exposed by smoke checks and persisted on `proxies`:
+
+- `last_smoke_status`
+- `last_smoke_protocol_ok`
+- `last_smoke_upstream_ok`
+- `last_exit_ip`
+- `last_anonymity_level`
+- `last_smoke_at`
+
+Task and status observability also surface proxy resolution state via:
+
+- `proxy_id`
+- `proxy_provider`
+- `proxy_region`
+- `proxy_resolution_status`
+- `/status.proxy_metrics`

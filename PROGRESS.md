@@ -124,6 +124,7 @@
 - **2026.3.31-00:49:00** 完成了 **sticky/provider 正式映射结构第一版**，新增 `proxy_session_bindings` 表承载 `sticky_session -> proxy_id` 绑定关系，并在执行完成后 upsert 绑定、执行前优先按绑定命中再做有效性校验（active / expires_at / cooldown / provider / region / min_score）；sticky 逻辑不再依赖历史任务 `result_json` 回溯。
 - **2026.3.31-01:08:00** 完成了 **HTTP/代理协议层 smoke test 第一版**，`POST /proxies/:id/smoke` 不再只做 TCP connect，而是会在建立连接后发送最小 HTTP CONNECT 探针，并根据是否收到 HTTP-like 代理响应给出 `protocol_ok`；同时保留失败回写逻辑，并补了一个可返回 `HTTP/1.1 200 Connection Established` 的伪代理回归测试。
 - **2026.3.31-01:12:00** 完成了 **lease TTL / reclaim / worker backoff 再收口**，将 stale running reclaim 从逐条循环推进为单条批量 `UPDATE ... RETURNING` 回收任务，再补 runs/logs；同时为 worker idle backoff 增加轻量 jitter，并给 error path backoff 增加独立上限控制，减少多 worker 同步撞库与异常退避失控。
+- **2026.3.31-08:00:00** 完成了 **代理验证信号写回与状态/环境变量文档收口**，smoke test 结果现在会回写 `last_smoke_status / last_smoke_protocol_ok / last_smoke_upstream_ok / last_exit_ip / last_anonymity_level / last_smoke_at`；同时当前阶段的关键环境变量、代理验证状态字段与观测输出已整理进文档，便于后续调参与运维。
 
 ## 1. 已经实现 / 已经落地
 
