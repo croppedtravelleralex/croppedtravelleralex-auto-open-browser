@@ -538,3 +538,34 @@ pub fn proxy_selection_order_by_trust_score_sql_with_tuning(tuning: &ProxySelect
         trust = trust
     )
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ProxyTrustScoreComponentWeights {
+    pub verify_ok_bonus: i64,
+    pub verify_geo_match_bonus: i64,
+    pub smoke_upstream_ok_bonus: i64,
+    pub verify_failed_heavy_penalty: i64,
+    pub verify_failed_light_penalty: i64,
+    pub verify_failed_base_penalty: i64,
+    pub missing_verify_penalty: i64,
+    pub stale_verify_penalty: i64,
+    pub raw_score_weight_tenths: i64,
+    pub provider_failure_margin: i64,
+    pub provider_region_failure_cluster_count: i64,
+}
+
+pub fn proxy_trust_score_component_weights(tuning: &ProxySelectionTuning) -> ProxyTrustScoreComponentWeights {
+    ProxyTrustScoreComponentWeights {
+        verify_ok_bonus: tuning.verify_ok_bonus,
+        verify_geo_match_bonus: tuning.verify_geo_match_bonus,
+        smoke_upstream_ok_bonus: tuning.smoke_upstream_ok_bonus,
+        verify_failed_heavy_penalty: tuning.verify_failed_heavy_penalty,
+        verify_failed_light_penalty: tuning.verify_failed_light_penalty,
+        verify_failed_base_penalty: tuning.verify_failed_base_penalty,
+        missing_verify_penalty: tuning.missing_verify_penalty,
+        stale_verify_penalty: tuning.stale_verify_penalty,
+        raw_score_weight_tenths: tuning.raw_score_weight_tenths,
+        provider_failure_margin: tuning.provider_failure_margin,
+        provider_region_failure_cluster_count: tuning.provider_region_failure_cluster_count,
+    }
+}

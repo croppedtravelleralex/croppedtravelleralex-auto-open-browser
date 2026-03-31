@@ -52,6 +52,12 @@ pub async fn init_db(database_url: &str) -> Result<DbPool> {
     ensure_column_exists(&pool, "tasks", "heartbeat_at", "ALTER TABLE tasks ADD COLUMN heartbeat_at TEXT").await?;
     ensure_column_exists(&pool, "tasks", "fingerprint_profile_id", "ALTER TABLE tasks ADD COLUMN fingerprint_profile_id TEXT").await?;
     ensure_column_exists(&pool, "tasks", "fingerprint_profile_version", "ALTER TABLE tasks ADD COLUMN fingerprint_profile_version INTEGER").await?;
+    ensure_column_exists(&pool, "proxies", "last_probe_latency_ms", "ALTER TABLE proxies ADD COLUMN last_probe_latency_ms INTEGER").await?;
+    ensure_column_exists(&pool, "proxies", "last_probe_error", "ALTER TABLE proxies ADD COLUMN last_probe_error TEXT").await?;
+    ensure_column_exists(&pool, "proxies", "last_probe_error_category", "ALTER TABLE proxies ADD COLUMN last_probe_error_category TEXT").await?;
+    ensure_column_exists(&pool, "proxies", "last_verify_confidence", "ALTER TABLE proxies ADD COLUMN last_verify_confidence REAL").await?;
+    ensure_column_exists(&pool, "proxies", "last_verify_score_delta", "ALTER TABLE proxies ADD COLUMN last_verify_score_delta INTEGER").await?;
+    ensure_column_exists(&pool, "proxies", "last_verify_source", "ALTER TABLE proxies ADD COLUMN last_verify_source TEXT").await?;
 
     Ok(pool)
 }

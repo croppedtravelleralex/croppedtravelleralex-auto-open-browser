@@ -5,7 +5,7 @@ use tokio::{sync::oneshot, task::JoinHandle, time::Duration};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::network_identity::proxy_selection::{apply_proxy_resolution_metadata, proxy_selection_base_where_sql, proxy_selection_order_by_trust_score_sql_with_tuning, proxy_trust_score_sql_with_tuning, resolved_proxy_json};
+use crate::network_identity::proxy_selection::{apply_proxy_resolution_metadata, proxy_selection_base_where_sql, proxy_selection_order_by_trust_score_sql_with_tuning, proxy_trust_score_component_weights, proxy_trust_score_sql_with_tuning, resolved_proxy_json};
 use crate::{
     app::state::AppState,
     domain::{
@@ -101,6 +101,46 @@ fn selection_reason_summary_for_mode(mode: &str, trust_score_total: Option<i64>)
     }
 }
 
+async fn preview_auto_candidates(
+    state: &AppState,
+    now: &str,
+    provider: Option<&str>,
+    region: Option<&str>,
+    min_score: f64,
+) -> Result<Vec<Value>> {
+    let trust_sql = proxy_trust_score_sql_with_tuning(&state.proxy_selection_tuning);
+    let query = format!(
+        "SELECT id, provider, region, score, CAST(({}) AS INTEGER) AS trust_score_total FROM proxies {} ORDER BY {} LIMIT 3",
+        trust_sql,
+        proxy_selection_base_where_sql(),
+        proxy_selection_order_by_trust_score_sql_with_tuning(&state.proxy_selection_tuning)
+    );
+    let rows = sqlx::query_as::<_, (String, Option<String>, Option<String>, f64, i64)>(&query)
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .bind(provider)
+        .bind(provider)
+        .bind(region)
+        .bind(region)
+        .bind(min_score)
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .fetch_all(&state.db)
+        .await?;
+    Ok(rows.into_iter().map(|(id, provider, region, score, trust_score_total)| json!({
+        "id": id,
+        "provider": provider,
+        "region": region,
+        "score": score,
+        "trust_score_total": trust_score_total,
+    })).collect())
+}
+
 async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) -> Result<()> {
     let Some(policy) = payload.get_mut("network_policy_json") else { return Ok(()); };
     let Some(policy_obj) = policy.as_object_mut() else { return Ok(()); };
@@ -189,12 +229,21 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
 
     if let Some((id, scheme, host, port, username, password, region, country, provider, score)) = row {
         let trust_score_total = load_proxy_trust_score(state, &id, &now).await?;
+        let preview_provider = provider.clone();
+        let preview_region = region.clone();
         let mut resolved = resolved_proxy_json(id, scheme, host, port, username, password, region, country, provider, score);
+        let trust_score_components = serde_json::to_value(proxy_trust_score_component_weights(&state.proxy_selection_tuning)).unwrap_or(Value::Null);
         if let Some(obj) = resolved.as_object_mut() {
             obj.insert("trust_score_total".to_string(), trust_score_total.map_or(Value::Null, |v| json!(v)));
+            obj.insert("trust_score_components".to_string(), trust_score_components.clone());
         }
         apply_proxy_resolution_metadata(policy_obj, sticky_session.as_deref(), Some(resolved));
         policy_obj.insert("selection_reason_summary".to_string(), json!(selection_reason_summary_for_mode(selection_mode, trust_score_total)));
+        policy_obj.insert("trust_score_components".to_string(), trust_score_components);
+        if selection_mode == "auto" {
+            let preview = preview_auto_candidates(state, &now, preview_provider.as_deref(), preview_region.as_deref(), min_score).await?;
+            policy_obj.insert("candidate_rank_preview".to_string(), json!(preview));
+        }
         if let Some(score) = trust_score_total {
             policy_obj.insert("trust_score_total".to_string(), json!(score));
         }
@@ -268,8 +317,10 @@ async fn update_proxy_health_after_execution(state: &AppState, proxy: Option<&Ru
         RunnerOutcomeStatus::Failed => (0, 1, Some((now.parse::<u64>().unwrap_or(0) + 60).to_string())),
         RunnerOutcomeStatus::TimedOut => (0, 1, Some((now.parse::<u64>().unwrap_or(0) + 180).to_string())),
     };
-    sqlx::query(r#"UPDATE proxies SET success_count = success_count + ?, failure_count = failure_count + ?, last_used_at = ?, last_checked_at = ?, cooldown_until = ?, updated_at = ? WHERE id = ?"#)
-        .bind(success_inc).bind(failure_inc).bind(&now).bind(&now).bind(&cooldown_until).bind(&now).bind(&proxy.id)
+    sqlx::query(r#"UPDATE proxies SET success_count = success_count + ?, failure_count = failure_count + ?, last_used_at = ?, last_checked_at = ?, cooldown_until = ?, score = MAX(0.0, score + ?), updated_at = ? WHERE id = ?"#)
+        .bind(success_inc).bind(failure_inc).bind(&now).bind(&now).bind(&cooldown_until)
+        .bind(match execution_status { RunnerOutcomeStatus::Succeeded => 0.01_f64, RunnerOutcomeStatus::Failed => -0.02_f64, RunnerOutcomeStatus::TimedOut => -0.03_f64 })
+        .bind(&now).bind(&proxy.id)
         .execute(&state.db).await?;
     Ok(())
 }
