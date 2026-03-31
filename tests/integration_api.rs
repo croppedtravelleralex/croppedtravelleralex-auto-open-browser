@@ -2908,3 +2908,36 @@ async fn trust_cache_repair_endpoint_repairs_drifted_cache() {
     assert_eq!(json.get("delta").and_then(|v| v.as_i64()), Some(0));
     assert!(json.get("cached_trust_score").and_then(|v| v.as_i64()).unwrap_or(0) > 0);
 }
+
+
+#[tokio::test]
+async fn trust_cache_scan_and_batch_repair_endpoints_work() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, cached_trust_score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at, created_at, updated_at)
+                  VALUES
+                  ('proxy-batch-cache-a', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'pool-batch-cache', 'active', 0.8, 0, 5, 0, 'ok', 1, 1, '9999999999', '1', '1'),
+                  ('proxy-batch-cache-b', 'http', '127.0.0.2', 8081, NULL, NULL, 'us-west', 'US', 'pool-batch-cache', 'active', 0.2, 0, 0, 0, NULL, 0, 0, NULL, '1', '1')"#)
+        .execute(&state.db)
+        .await
+        .expect("insert proxies");
+    AutoOpenBrowser::db::init::refresh_provider_risk_snapshots(&state.db).await.expect("refresh risk snapshots");
+
+    let (scan_status, scan_json) = json_response(
+        &app,
+        Request::builder().uri("/proxies/trust-cache-scan").body(Body::empty()).expect("request"),
+    ).await;
+    assert_eq!(scan_status, StatusCode::OK);
+    assert_eq!(scan_json.get("total").and_then(|v| v.as_u64()), Some(2));
+    assert!(scan_json.get("drifted").and_then(|v| v.as_u64()).unwrap_or(0) >= 1);
+
+    let (repair_status, repair_json) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/proxies/trust-cache-repair-batch").body(Body::empty()).expect("request"),
+    ).await;
+    assert_eq!(repair_status, StatusCode::OK);
+    assert_eq!(repair_json.get("scanned").and_then(|v| v.as_u64()), Some(2));
+    assert!(repair_json.get("repaired").and_then(|v| v.as_u64()).unwrap_or(0) >= 1);
+    assert_eq!(repair_json.get("remaining_drifted").and_then(|v| v.as_u64()), Some(0));
+}

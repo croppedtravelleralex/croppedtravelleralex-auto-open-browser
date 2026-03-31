@@ -344,3 +344,29 @@ pub struct ProxyTrustCacheRepairResponse {
     pub repaired: bool,
     pub cached_at: Option<String>,
 }
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyTrustCacheScanItem {
+    pub proxy_id: String,
+    pub cached_trust_score: Option<i64>,
+    pub recomputed_trust_score: Option<i64>,
+    pub delta: Option<i64>,
+    pub in_sync: bool,
+    pub cached_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyTrustCacheScanResponse {
+    pub total: usize,
+    pub drifted: usize,
+    pub items: Vec<ProxyTrustCacheScanItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyTrustCacheRepairBatchResponse {
+    pub scanned: usize,
+    pub repaired: usize,
+    pub remaining_drifted: usize,
+    pub items: Vec<ProxyTrustCacheScanItem>,
+}

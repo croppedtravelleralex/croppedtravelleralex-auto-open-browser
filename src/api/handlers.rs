@@ -23,7 +23,7 @@ use crate::{
 use super::dto::{
     CancelTaskResponse, CreateFingerprintProfileRequest, CreateProxyRequest, CreateTaskRequest,
     FingerprintMetricsResponse, FingerprintProfileResponse, HealthResponse, LogResponse,
-    PaginationQuery, ProxyMetricsResponse, ProxyResponse, ProxySelectionExplainResponse, ProxySmokeResponse, ProxyTrustCacheCheckResponse, ProxyTrustCacheRepairResponse, ProxyVerifyBatchProviderSummary, ProxyVerifyBatchRequest, ProxyVerifyBatchResponse, ProxyVerifyResponse, RetryTaskResponse, VerifyBatchListQuery, VerifyBatchResponse, VerifyMetricsResponse,
+    PaginationQuery, ProxyMetricsResponse, ProxyResponse, ProxySelectionExplainResponse, ProxySmokeResponse, ProxyTrustCacheCheckResponse, ProxyTrustCacheRepairBatchResponse, ProxyTrustCacheRepairResponse, ProxyTrustCacheScanItem, ProxyTrustCacheScanResponse, ProxyVerifyBatchProviderSummary, ProxyVerifyBatchRequest, ProxyVerifyBatchResponse, ProxyVerifyResponse, RetryTaskResponse, VerifyBatchListQuery, VerifyBatchResponse, VerifyMetricsResponse,
     RunResponse, StatusResponse, TaskResponse, TaskStatusCounts, WorkerStatusResponse,
 };
 
@@ -673,6 +673,72 @@ pub async fn check_proxy_trust_cache(
         delta,
         in_sync,
         cached_at,
+    }))
+}
+
+async fn collect_trust_cache_scan_items(
+    state: &AppState,
+) -> Result<Vec<ProxyTrustCacheScanItem>, (StatusCode, String)> {
+    let now = now_ts_string();
+    let trust_sql = crate::network_identity::proxy_selection::proxy_trust_score_sql_with_tuning(&state.proxy_selection_tuning);
+    let rows = sqlx::query_as::<_, (String, Option<i64>, Option<String>, Option<i64>)>(&format!(
+        "SELECT id, cached_trust_score, trust_score_cached_at, CAST(({}) AS INTEGER) FROM proxies ORDER BY created_at ASC, id ASC",
+        trust_sql
+    ))
+    .bind(&now)
+    .bind(&now)
+    .bind(&now)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to scan trust cache: {err}")))?;
+
+    Ok(rows.into_iter().map(|(proxy_id, cached_trust_score, cached_at, recomputed_trust_score)| {
+        let delta = match (cached_trust_score, recomputed_trust_score) {
+            (Some(cached), Some(recomputed)) => Some(recomputed - cached),
+            _ => None,
+        };
+        let in_sync = delta.unwrap_or(0) == 0;
+        ProxyTrustCacheScanItem {
+            proxy_id,
+            cached_trust_score,
+            recomputed_trust_score,
+            delta,
+            in_sync,
+            cached_at,
+        }
+    }).collect())
+}
+
+pub async fn scan_proxy_trust_cache(
+    State(state): State<AppState>,
+) -> Result<Json<ProxyTrustCacheScanResponse>, (StatusCode, String)> {
+    let items = collect_trust_cache_scan_items(&state).await?;
+    let drifted = items.iter().filter(|item| !item.in_sync).count();
+    Ok(Json(ProxyTrustCacheScanResponse {
+        total: items.len(),
+        drifted,
+        items,
+    }))
+}
+
+pub async fn repair_proxy_trust_cache_batch(
+    State(state): State<AppState>,
+) -> Result<Json<ProxyTrustCacheRepairBatchResponse>, (StatusCode, String)> {
+    let before = collect_trust_cache_scan_items(&state).await?;
+    let mut repaired = 0usize;
+    for item in before.iter().filter(|item| !item.in_sync) {
+        refresh_cached_trust_score_for_proxy(&state.db, &item.proxy_id)
+            .await
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to repair cached trust score for {}: {err}", item.proxy_id)))?;
+        repaired += 1;
+    }
+    let after = collect_trust_cache_scan_items(&state).await?;
+    let remaining_drifted = after.iter().filter(|item| !item.in_sync).count();
+    Ok(Json(ProxyTrustCacheRepairBatchResponse {
+        scanned: before.len(),
+        repaired,
+        remaining_drifted,
+        items: after,
     }))
 }
 
