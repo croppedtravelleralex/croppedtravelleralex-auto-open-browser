@@ -3432,3 +3432,51 @@ async fn verify_proxy_penalizes_non_public_exit_ip_and_transparent_headers() {
     assert_eq!(verify_json.get("probe_error_category").and_then(|v| v.as_str()), Some("exit_ip_not_public"));
     assert_eq!(verify_json.get("status").and_then(|v| v.as_str()), Some("failed"));
 }
+
+
+#[tokio::test]
+async fn verify_proxy_returns_human_readable_risk_summary() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    tokio::spawn(async move {
+        if let Ok((mut socket, _)) = listener.accept().await {
+            let mut buf = [0_u8; 256];
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), socket.read(&mut buf)).await;
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                socket.write_all(b"HTTP/1.1 200 Connection Established\r\nX-Forwarded-For: 10.0.0.7\r\n\r\nip=10.0.0.7\ncountry=CA\nregion=Ontario\n"),
+            ).await;
+        }
+    });
+
+    let db_url = unique_db_url();
+    let (_state, app) = build_test_app(&db_url).await.expect("build app");
+    let proxy_payload = serde_json::json!({
+        "id": "proxy-verify-risk-summary",
+        "scheme": "http",
+        "host": addr.ip().to_string(),
+        "port": addr.port(),
+        "region": "Virginia",
+        "country": "US",
+        "provider": "smoke",
+        "score": 0.5
+    });
+    let (create_status, _) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/proxies").header("content-type", "application/json").body(Body::from(proxy_payload.to_string())).expect("request"),
+    ).await;
+    assert_eq!(create_status, StatusCode::CREATED);
+
+    let (verify_status, verify_json) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/proxies/proxy-verify-risk-summary/verify").body(Body::empty()).expect("request"),
+    ).await;
+    assert_eq!(verify_status, StatusCode::OK);
+    assert_eq!(verify_json.get("risk_level").and_then(|v| v.as_str()), Some("high"));
+    let reasons = verify_json.get("risk_reasons").and_then(|v| v.as_array()).expect("risk reasons");
+    let as_strings: Vec<&str> = reasons.iter().filter_map(|v| v.as_str()).collect();
+    assert!(as_strings.contains(&"exit_ip_not_public"));
+    assert!(as_strings.contains(&"transparent_proxy"));
+    assert!(as_strings.contains(&"geo_mismatch"));
+    assert!(as_strings.contains(&"region_mismatch"));
+}

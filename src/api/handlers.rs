@@ -208,6 +208,17 @@ Host: verify.example:443
             _ => 0,
         }
     );
+    let (risk_level, risk_reasons) = compute_verify_risk_summary(
+        reachable,
+        protocol_ok,
+        upstream_ok,
+        geo_match_ok,
+        region_match_ok,
+        identity_fields_complete,
+        exit_ip_public,
+        anonymity_level.as_deref(),
+        probe_error_category.as_deref(),
+    );
     let verify_source = Some("local_verify".to_string());
     let now = now_ts_string();
     sqlx::query(r#"UPDATE proxies SET last_checked_at = ?, last_verify_status = ?, last_verify_geo_match_ok = ?, last_exit_ip = ?, last_exit_country = ?, last_exit_region = ?, last_anonymity_level = ?, last_verify_at = ?, last_probe_latency_ms = ?, last_probe_error = ?, last_probe_error_category = ?, last_verify_confidence = ?, last_verify_score_delta = ?, last_verify_source = ?, score = MAX(0.0, score + (? / 100.0)), updated_at = ? WHERE id = ?"#)
@@ -251,6 +262,8 @@ Host: verify.example:443
         geo_match_ok,
         region_match_ok,
         identity_fields_complete,
+        risk_level,
+        risk_reasons,
         anonymity_level,
         latency_ms,
         probe_error,
@@ -261,6 +274,60 @@ Host: verify.example:443
         status: status.to_string(),
         message: verify_message,
     })
+}
+
+
+fn compute_verify_risk_summary(
+    reachable: bool,
+    protocol_ok: bool,
+    upstream_ok: bool,
+    geo_match_ok: Option<bool>,
+    region_match_ok: Option<bool>,
+    identity_fields_complete: Option<bool>,
+    exit_ip_public: Option<bool>,
+    anonymity_level: Option<&str>,
+    probe_error_category: Option<&str>,
+) -> (Option<String>, Vec<String>) {
+    let mut reasons = Vec::new();
+    if !reachable {
+        reasons.push("connect_failed".to_string());
+    }
+    if reachable && !protocol_ok {
+        reasons.push("protocol_invalid".to_string());
+    }
+    if probe_error_category == Some("exit_ip_not_public") || exit_ip_public == Some(false) {
+        reasons.push("exit_ip_not_public".to_string());
+    }
+    if upstream_ok == false {
+        reasons.push("identity_incomplete".to_string());
+    } else if identity_fields_complete == Some(false) {
+        reasons.push("identity_incomplete".to_string());
+    }
+    if geo_match_ok == Some(false) {
+        reasons.push("geo_mismatch".to_string());
+    }
+    if region_match_ok == Some(false) {
+        reasons.push("region_mismatch".to_string());
+    }
+    match anonymity_level {
+        Some("transparent") => reasons.push("transparent_proxy".to_string()),
+        Some("anonymous") => reasons.push("anonymous_proxy".to_string()),
+        _ => {}
+    }
+    reasons.sort();
+    reasons.dedup();
+
+    let risk_level = if reasons.iter().any(|r| matches!(r.as_str(), "connect_failed" | "protocol_invalid" | "exit_ip_not_public" | "transparent_proxy")) {
+        Some("high".to_string())
+    } else if reasons.iter().any(|r| matches!(r.as_str(), "identity_incomplete" | "geo_mismatch" | "region_mismatch" | "anonymous_proxy")) {
+        Some("medium".to_string())
+    } else if reachable && protocol_ok && upstream_ok {
+        Some("low".to_string())
+    } else {
+        None
+    };
+
+    (risk_level, reasons)
 }
 
 fn looks_like_ip(value: &str) -> bool {
