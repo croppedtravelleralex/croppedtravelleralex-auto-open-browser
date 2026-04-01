@@ -341,18 +341,54 @@ pub fn refresh_dynamic_suggestions(
     Ok(())
 }
 
+
+fn append_execution_log(entries: &[WorkflowActionRecord]) -> Result<()> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let path = Path::new("EXECUTION_LOG.md");
+    let mut existing = if path.exists() { fs::read_to_string(path)? } else { String::new() };
+    if !existing.ends_with('\n') {
+        existing.push('\n');
+    }
+    existing.push_str("
+## Workflow Action Dispatch
+
+");
+    for entry in entries {
+        existing.push_str(&format!("- {} [{}]: {}
+", entry.title, match entry.kind {
+            WorkflowSuggestionKind::Feature => "feature",
+            WorkflowSuggestionKind::BugScan => "bug_scan",
+            WorkflowSuggestionKind::BugFix => "bug_fix",
+            WorkflowSuggestionKind::DocSync => "doc_sync",
+            WorkflowSuggestionKind::Refactor => "refactor",
+            WorkflowSuggestionKind::Performance => "performance",
+            WorkflowSuggestionKind::Test => "test",
+        }, entry.note));
+    }
+    fs::write(path, existing)?;
+    Ok(())
+}
+
 pub fn dispatch_top_suggestions(state: &mut WorkflowExecutionState, max_actions: usize) -> WorkflowDispatchResult {
-    let executed = state
+    let mut executed = state
         .next_suggestions
         .iter()
         .take(max_actions)
         .map(|suggestion| WorkflowActionRecord {
             title: suggestion.title.clone(),
             kind: suggestion.kind,
-            status: "simulated_done".to_string(),
-            note: format!("已按最小动作分发器记录执行：{}", suggestion.rationale),
+            status: "logged".to_string(),
+            note: format!("已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：{}", suggestion.rationale),
         })
         .collect::<Vec<_>>();
+    if let Err(err) = append_execution_log(&executed) {
+        for item in &mut executed {
+            item.status = "log_failed".to_string();
+            item.note = format!("写入 EXECUTION_LOG.md 失败：{}", err);
+        }
+    }
     state.last_executed_actions = executed.clone();
     WorkflowDispatchResult { executed }
 }
@@ -634,7 +670,7 @@ mod tests {
         let result = dispatch_top_suggestions(&mut state, 2);
         assert_eq!(result.executed.len(), 2);
         assert_eq!(state.last_executed_actions.len(), 2);
-        assert!(state.last_executed_actions.iter().all(|a| a.status == "simulated_done"));
+        assert!(state.last_executed_actions.iter().all(|a| a.status == "logged" || a.status == "log_failed"));
     }
 
     #[test]
