@@ -157,3 +157,41 @@
 - 让 explainability assembler 不再只依赖 integration tests 托底，开始具备模块级回归锁。
 - 验证结果：`cargo test` 全绿（35 unit + 75 integration）。
 
+
+## Workflow Action Dispatch
+
+- 读取目标文档并重新排序下一阶段事项 [doc_sync]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：先对齐 VISION/CURRENT_DIRECTION/TODO，避免跑偏
+- 生成 3–5 个下一阶段建议 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：为执行前两个动作提供稳定输入
+
+## Workflow Action Dispatch
+
+- 执行建议第 1 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：默认推进当前最优先事项
+- 执行建议第 2 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：保持双任务推进节奏
+
+## Workflow Action Dispatch
+
+- 执行建议第 1 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：默认推进当前最优先事项
+- 执行建议第 2 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：保持双任务推进节奏
+
+## Workflow Action Dispatch
+
+- 读取目标文档并重新排序下一阶段事项 [doc_sync]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：先对齐 VISION/CURRENT_DIRECTION/TODO，避免跑偏
+- 生成 3–5 个下一阶段建议 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：为执行前两个动作提供稳定输入
+
+## Workflow Action Dispatch
+
+- 执行建议第 1 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：默认推进当前最优先事项
+- 执行建议第 2 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：保持双任务推进节奏
+
+## Workflow Action Dispatch
+
+- 执行建议第 1 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：默认推进当前最优先事项
+- 执行建议第 2 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：保持双任务推进节奏
+
+## 2026-04-01 runner explainability helper unit test pass
+
+- 为 `src/runner/engine.rs` 增加模块级 unit tests，覆盖 `computed_trust_score_components`、`summarize_component_advantages`、`summarize_component_delta` 与 `structured_component_delta`。
+- 通过单测锁住 typed trust score components 的真实加减分口径、组件标签映射、baseline 对比摘要与结构化差分输出。
+- 单测过程中确认 `summarize_component_delta` 不保证同时出现 positive / negative 两类文案，`structured_component_delta` 也只保留 top 5 绝对差异项；按真实行为修正断言。
+- 验证结果：`cargo test` 全绿（39 unit + 75 integration）。
+

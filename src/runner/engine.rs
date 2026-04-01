@@ -1166,3 +1166,112 @@ where
 
     Ok(true)
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network_identity::proxy_selection::default_proxy_selection_tuning;
+    use serde_json::json;
+
+    fn components_json() -> Value {
+        json!({
+            "verify_ok_bonus": 30,
+            "verify_geo_match_bonus": 20,
+            "smoke_upstream_ok_bonus": 10,
+            "raw_score_component": 8,
+            "missing_verify_penalty": 0,
+            "stale_verify_penalty": 0,
+            "verify_failed_heavy_penalty": 0,
+            "verify_failed_light_penalty": 0,
+            "verify_failed_base_penalty": 0,
+            "individual_history_penalty": 0,
+            "provider_risk_penalty": 0,
+            "provider_region_cluster_penalty": 0,
+        })
+    }
+
+    fn penalty_components_json() -> Value {
+        json!({
+            "verify_ok_bonus": 0,
+            "verify_geo_match_bonus": 0,
+            "smoke_upstream_ok_bonus": 0,
+            "raw_score_component": 0,
+            "missing_verify_penalty": 12,
+            "stale_verify_penalty": 8,
+            "verify_failed_heavy_penalty": 30,
+            "verify_failed_light_penalty": 15,
+            "verify_failed_base_penalty": 10,
+            "individual_history_penalty": 2,
+            "provider_risk_penalty": 5,
+            "provider_region_cluster_penalty": 2,
+        })
+    }
+
+    #[test]
+    fn computed_trust_score_components_returns_typed_breakdown() {
+        let tuning = default_proxy_selection_tuning();
+        let components = computed_trust_score_components(
+            &tuning,
+            0.77,
+            5,
+            1,
+            Some("ok"),
+            true,
+            true,
+            Some(9999999999),
+            true,
+            true,
+            1000,
+        );
+        assert_eq!(components.verify_ok_bonus, 30);
+        assert_eq!(components.verify_geo_match_bonus, 20);
+        assert_eq!(components.smoke_upstream_ok_bonus, 10);
+        assert_eq!(components.raw_score_component, 8);
+        assert_eq!(components.provider_risk_penalty, 5);
+        assert_eq!(components.provider_region_cluster_penalty, 2);
+        assert_eq!(components.missing_verify_penalty, 0);
+    }
+
+    #[test]
+    fn summarize_component_advantages_and_delta_expose_expected_language() {
+        let summary = summarize_component_advantages(&components_json());
+        assert!(summary.contains("wins on verify_ok, geo_match, upstream_ok, raw_score"));
+        let penalty_summary = summarize_component_advantages(&penalty_components_json());
+        assert!(penalty_summary.contains("penalized by missing_verify, stale_verify, verify_failed_heavy, verify_failed_light, verify_failed_base, history_risk, provider_risk, provider_region_risk"));
+
+        let delta = summarize_component_delta(&components_json(), Some(&penalty_components_json()));
+        assert!(delta.contains("better on"));
+        assert!(!delta.contains("worse on"));
+        assert!(delta.contains("wins on verify_ok, geo_match, upstream_ok, raw_score"));
+    }
+
+    #[test]
+    fn structured_component_delta_orders_factors_by_magnitude_and_uses_expected_labels() {
+        let current = components_json();
+        let baseline = penalty_components_json();
+        let delta = structured_component_delta(&current, Some(&baseline));
+        assert_eq!(delta.get("winner_total_score").and_then(|v| v.as_i64()), Some(68));
+        assert_eq!(delta.get("runner_up_total_score").and_then(|v| v.as_i64()), Some(84));
+        assert_eq!(delta.get("score_gap").and_then(|v| v.as_i64()), Some(-16));
+        let factors = delta.get("factors").and_then(|v| v.as_array()).expect("factors");
+        assert!(!factors.is_empty());
+        assert!(factors.len() <= 5);
+        let labels: Vec<&str> = factors.iter().filter_map(|item| item.get("label").and_then(|v| v.as_str())).collect();
+        assert!(labels.iter().any(|label| *label == "verify_ok"));
+        assert!(labels.iter().any(|label| matches!(*label, "missing_verify" | "stale_verify" | "verify_failed_heavy" | "verify_failed_light" | "verify_failed_base" | "history_risk" | "provider_risk" | "provider_region_risk")));
+        let deltas: Vec<i64> = factors.iter().filter_map(|item| item.get("delta").and_then(|v| v.as_i64()).map(|d| d.abs())).collect();
+        assert!(deltas.windows(2).all(|w| w[0] >= w[1]));
+    }
+
+    #[test]
+    fn structured_component_delta_without_baseline_returns_neutral_factor_bundle() {
+        let current = components_json();
+        let delta = structured_component_delta(&current, None);
+        assert_eq!(delta.get("runner_up_total_score").and_then(|v| v.as_i64()), Some(0));
+        assert_eq!(delta.get("score_gap").and_then(|v| v.as_i64()), Some(68));
+        let factors = delta.get("factors").and_then(|v| v.as_array()).expect("factors");
+        assert_eq!(factors.len(), 5);
+        assert!(factors.iter().all(|item| item.get("direction").and_then(|v| v.as_str()) == Some("neutral")));
+    }
+}
