@@ -314,6 +314,8 @@ pub struct ProxyVerifyResponse {
     pub exit_country: Option<String>,
     pub exit_region: Option<String>,
     pub geo_match_ok: Option<bool>,
+    pub region_match_ok: Option<bool>,
+    pub identity_fields_complete: Option<bool>,
     pub anonymity_level: Option<String>,
     pub latency_ms: Option<u128>,
     pub probe_error: Option<String>,

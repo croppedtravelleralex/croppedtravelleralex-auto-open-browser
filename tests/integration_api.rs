@@ -3296,3 +3296,94 @@ async fn proxy_explain_trust_score_components_roundtrip_as_typed_shape() {
         assert!(comp.get(key).and_then(|v| v.as_i64()).is_some(), "missing key {key}");
     }
 }
+
+
+#[tokio::test]
+async fn verify_proxy_uses_region_match_and_complete_identity_in_confidence() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    tokio::spawn(async move {
+        if let Ok((mut socket, _)) = listener.accept().await {
+            let mut buf = [0_u8; 256];
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), socket.read(&mut buf)).await;
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                socket.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\nip=198.51.100.10\ncountry=US\nregion=Virginia\n"),
+            ).await;
+        }
+    });
+
+    let db_url = unique_db_url();
+    let (_state, app) = build_test_app(&db_url).await.expect("build app");
+    let proxy_payload = serde_json::json!({
+        "id": "proxy-verify-region-complete",
+        "scheme": "http",
+        "host": addr.ip().to_string(),
+        "port": addr.port(),
+        "region": "Virginia",
+        "country": "US",
+        "provider": "smoke",
+        "score": 0.5
+    });
+    let (create_status, _) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/proxies").header("content-type", "application/json").body(Body::from(proxy_payload.to_string())).expect("request"),
+    ).await;
+    assert_eq!(create_status, StatusCode::CREATED);
+
+    let (verify_status, verify_json) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/proxies/proxy-verify-region-complete/verify").body(Body::empty()).expect("request"),
+    ).await;
+    assert_eq!(verify_status, StatusCode::OK);
+    assert_eq!(verify_json.get("geo_match_ok").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(verify_json.get("region_match_ok").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(verify_json.get("identity_fields_complete").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(verify_json.get("verification_confidence").and_then(|v| v.as_f64()), Some(0.97));
+    assert_eq!(verify_json.get("verification_score_delta").and_then(|v| v.as_i64()), Some(17));
+}
+
+
+#[tokio::test]
+async fn verify_proxy_rejects_invalid_exit_ip_shape_from_identity_probe() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    tokio::spawn(async move {
+        if let Ok((mut socket, _)) = listener.accept().await {
+            let mut buf = [0_u8; 256];
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), socket.read(&mut buf)).await;
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                socket.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\nip=not-an-ip\ncountry=US\nregion=Virginia\n"),
+            ).await;
+        }
+    });
+
+    let db_url = unique_db_url();
+    let (_state, app) = build_test_app(&db_url).await.expect("build app");
+    let proxy_payload = serde_json::json!({
+        "id": "proxy-verify-invalid-ip",
+        "scheme": "http",
+        "host": addr.ip().to_string(),
+        "port": addr.port(),
+        "region": "Virginia",
+        "country": "US",
+        "provider": "smoke",
+        "score": 0.5
+    });
+    let (create_status, _) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/proxies").header("content-type", "application/json").body(Body::from(proxy_payload.to_string())).expect("request"),
+    ).await;
+    assert_eq!(create_status, StatusCode::CREATED);
+
+    let (verify_status, verify_json) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/proxies/proxy-verify-invalid-ip/verify").body(Body::empty()).expect("request"),
+    ).await;
+    assert_eq!(verify_status, StatusCode::OK);
+    assert_eq!(verify_json.get("exit_ip").and_then(|v| v.as_str()), None);
+    assert_eq!(verify_json.get("identity_fields_complete").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(verify_json.get("upstream_ok").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(verify_json.get("status").and_then(|v| v.as_str()), Some("failed"));
+}

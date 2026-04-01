@@ -95,13 +95,13 @@ pub async fn run_proxy_verify_probe(
     state: &AppState,
     proxy_id: &str,
 ) -> Result<ProxyVerifyResponse, (StatusCode, String)> {
-    let row = sqlx::query_as::<_, (String, i64, Option<String>)>(r#"SELECT host, port, country FROM proxies WHERE id = ?"#)
+    let row = sqlx::query_as::<_, (String, i64, Option<String>, Option<String>)>(r#"SELECT host, port, country, region FROM proxies WHERE id = ?"#)
         .bind(proxy_id)
         .fetch_optional(&state.db)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to load proxy for verify: {err}")))?;
 
-    let Some((host, port, expected_country)) = row else {
+    let Some((host, port, expected_country, expected_region)) = row else {
         return Err((StatusCode::NOT_FOUND, format!("proxy not found: {proxy_id}")));
     };
 
@@ -121,6 +121,8 @@ pub async fn run_proxy_verify_probe(
     let mut exit_country: Option<String> = None;
     let mut exit_region: Option<String> = None;
     let mut geo_match_ok: Option<bool> = None;
+    let mut region_match_ok: Option<bool> = None;
+    let mut identity_fields_complete: Option<bool> = None;
     let mut anonymity_level: Option<String> = None;
     let mut probe_error: Option<String> = if reachable { None } else { Some("proxy verify tcp connect failed".to_string()) };
     let mut probe_error_category: Option<String> = if reachable { None } else { Some("connect_failed".to_string()) };
@@ -146,12 +148,14 @@ Host: verify.example:443
                         let has_via = text_lower.contains("via:");
                         let has_forwarded = text_lower.contains("forwarded:") || text_lower.contains("x-forwarded-for:");
                         anonymity_level = Some(if has_forwarded { "transparent".to_string() } else if has_via { "anonymous".to_string() } else { "elite".to_string() });
-                        exit_ip = parse_probe_field(&text, "ip");
+                        exit_ip = parse_probe_field(&text, "ip").filter(|v| looks_like_ip(v));
                         exit_country = parse_probe_field(&text, "country");
                         exit_region = parse_probe_field(&text, "region");
-                        upstream_ok = exit_ip.is_some() || exit_country.is_some() || exit_region.is_some();
+                        identity_fields_complete = Some(exit_ip.is_some() && exit_country.is_some() && exit_region.is_some());
+                        upstream_ok = identity_fields_complete.unwrap_or(false);
                         geo_match_ok = expected_country.as_ref().map(|expected| exit_country.as_ref().map(|actual| actual.eq_ignore_ascii_case(expected)).unwrap_or(false));
-                        verify_message = format!("proxy verify completed ip={:?} country={:?} region={:?}", exit_ip, exit_country, exit_region);
+                        region_match_ok = expected_region.as_ref().map(|expected| exit_region.as_ref().map(|actual| actual.eq_ignore_ascii_case(expected)).unwrap_or(false));
+                        verify_message = format!("proxy verify completed ip={:?} country={:?} region={:?} region_match={:?}", exit_ip, exit_country, exit_region, region_match_ok);
                         probe_error = None;
                         probe_error_category = None;
                     } else {
@@ -171,10 +175,12 @@ Host: verify.example:443
     let latency_ms = Some(started.elapsed().as_millis());
     let latency_ms_i64 = latency_ms.and_then(|v| i64::try_from(v).ok());
     let status = if reachable && protocol_ok && upstream_ok { "ok" } else { "failed" };
-    let verification_confidence = Some(if reachable && protocol_ok && upstream_ok && geo_match_ok == Some(true) {
-        0.95
+    let verification_confidence = Some(if reachable && protocol_ok && upstream_ok && geo_match_ok == Some(true) && region_match_ok != Some(false) {
+        0.97
+    } else if reachable && protocol_ok && upstream_ok && geo_match_ok == Some(true) {
+        0.88
     } else if reachable && protocol_ok && upstream_ok {
-        0.80
+        0.72
     } else if reachable && protocol_ok {
         0.45
     } else if reachable {
@@ -185,6 +191,8 @@ Host: verify.example:443
     let verification_score_delta = Some(
         (if status == "ok" { 8 } else { -8 })
         + (if geo_match_ok == Some(true) { 4 } else if geo_match_ok == Some(false) { -4 } else { 0 })
+        + (if region_match_ok == Some(true) { 2 } else if region_match_ok == Some(false) { -2 } else { 0 })
+        + (if identity_fields_complete == Some(true) { 1 } else { -1 })
         + match anonymity_level.as_deref() {
             Some("elite") => 2,
             Some("transparent") => -2,
@@ -232,6 +240,8 @@ Host: verify.example:443
         exit_country,
         exit_region,
         geo_match_ok,
+        region_match_ok,
+        identity_fields_complete,
         anonymity_level,
         latency_ms,
         probe_error,
@@ -242,6 +252,10 @@ Host: verify.example:443
         status: status.to_string(),
         message: verify_message,
     })
+}
+
+fn looks_like_ip(value: &str) -> bool {
+    value.parse::<std::net::IpAddr>().is_ok()
 }
 
 fn parse_probe_field(text: &str, key: &str) -> Option<String> {

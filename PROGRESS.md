@@ -59,6 +59,7 @@
 - **2026年04月01日 20时33分00秒** 实现了**explainability 生产侧 JSON 桥接收紧**功能，进一步减少主链里的冗余 `Value`/`Null` 手工拼装。
 - **2026年04月01日 20时58分00秒** 实现了**scoped trust refresh 收口**功能，将 verify 与 runner 执行后的重复 trust/risk 刷新路径压缩到统一 helper。
 - **2026年04月01日 21时02分00秒** 实现了**trust cache SQL 公共模板抽取**功能，将多处重复的 cached trust score 更新公式收口为统一模板，并补上 scoped refresh helper 单测。
+- **2026年04月01日 21时55分00秒** 实现了**verify 慢路径增强第一轮**功能，为代理验证补上出口 IP 形状校验、region 匹配判断、identity fields 完整度判断，并将这些信号纳入 verify 置信度与分值计算。
 
 ---
 
@@ -74,4 +75,4 @@
 
 ## 当前阶段一句话总结
 
-**截至 2026年04月01日 21时02分00秒，项目已经完成“浏览器执行系统 V1 + 代理验证/巡检 V1 + trust cache 主链 + explainability 主链结构化收口 + 模块级测试锁死 + scoped trust refresh 收口 + trust cache SQL 模板抽取”的阶段性建设。**
+**截至 2026年04月01日 21时55分00秒，项目已经完成“浏览器执行系统 V1 + 代理验证/巡检 V1 + trust cache 主链 + explainability 主链结构化收口 + 模块级测试锁死 + scoped trust refresh 收口 + trust cache SQL 模板抽取 + verify 慢路径增强第一轮”的阶段性建设。**
