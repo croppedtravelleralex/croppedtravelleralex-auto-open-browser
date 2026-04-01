@@ -198,6 +198,104 @@ impl WorkflowExecutionState {
 }
 
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorkflowDocumentContext {
+    pub vision: String,
+    pub current_direction: String,
+    pub todo: String,
+}
+
+impl WorkflowDocumentContext {
+    pub fn load_from_files(
+        vision_path: impl AsRef<Path>,
+        current_direction_path: impl AsRef<Path>,
+        todo_path: impl AsRef<Path>,
+    ) -> Result<Self> {
+        Ok(Self {
+            vision: fs::read_to_string(vision_path.as_ref())
+                .with_context(|| format!("failed to read {}", vision_path.as_ref().display()))?,
+            current_direction: fs::read_to_string(current_direction_path.as_ref())
+                .with_context(|| format!("failed to read {}", current_direction_path.as_ref().display()))?,
+            todo: fs::read_to_string(todo_path.as_ref())
+                .with_context(|| format!("failed to read {}", todo_path.as_ref().display()))?,
+        })
+    }
+}
+
+pub fn generate_dynamic_suggestions(stage: WorkflowStage, ctx: &WorkflowDocumentContext) -> Vec<WorkflowSuggestion> {
+    let mut suggestions = Vec::new();
+    let todo = ctx.todo.to_lowercase();
+    let direction = ctx.current_direction.to_lowercase();
+    let vision = ctx.vision.to_lowercase();
+
+    if direction.contains("trust score") {
+        suggestions.push(suggestion(
+            "继续推进 trust score 核心化",
+            1,
+            "CURRENT_DIRECTION 明确要求继续把 proxy selection 收敛到 trust score 核心表达",
+            WorkflowSuggestionKind::Feature,
+        ));
+    }
+    if direction.contains("verify") {
+        suggestions.push(suggestion(
+            "推进 verify / smoke / batch verify 质量闭环",
+            2,
+            "当前方向要求把 verify 信号统一成更稳定的质量闭环",
+            WorkflowSuggestionKind::Feature,
+        ));
+    }
+    if todo.contains("写放大") || direction.contains("写放大") {
+        suggestions.push(suggestion(
+            "治理高并发写放大与状态竞争",
+            3,
+            "TODO 与 CURRENT_DIRECTION 都把写放大控制列为当前重点",
+            WorkflowSuggestionKind::Performance,
+        ));
+    }
+    if direction.contains("文档") || todo.contains("同步 current_") {
+        suggestions.push(suggestion(
+            "继续同步 CURRENT_*/TODO/STATUS 口径",
+            4,
+            "当前阶段强调文档、策略、代码主链要保持同一口径",
+            WorkflowSuggestionKind::DocSync,
+        ));
+    }
+    if vision.contains("可替换执行引擎") || vision.contains("artifact") {
+        suggestions.push(suggestion(
+            "补执行引擎边界与 artifact 策略",
+            5,
+            "VISION 强调可替换执行引擎与长期运行下的结果管理能力",
+            WorkflowSuggestionKind::Refactor,
+        ));
+    }
+
+    if stage == WorkflowStage::BugScan {
+        return vec![
+            suggestion("查找 bug", 1, "bug 环固定第一项为查找问题", WorkflowSuggestionKind::BugScan),
+            suggestion("修复 bug", 2, "bug 环固定第二项为修复问题", WorkflowSuggestionKind::BugFix),
+        ];
+    }
+
+    if suggestions.is_empty() {
+        default_suggestions_for_stage(stage)
+    } else {
+        suggestions.sort_by_key(|s| s.priority);
+        suggestions.truncate(5);
+        suggestions
+    }
+}
+
+pub fn refresh_dynamic_suggestions(
+    state: &mut WorkflowExecutionState,
+    vision_path: impl AsRef<Path>,
+    current_direction_path: impl AsRef<Path>,
+    todo_path: impl AsRef<Path>,
+) -> Result<()> {
+    let ctx = WorkflowDocumentContext::load_from_files(vision_path, current_direction_path, todo_path)?;
+    state.next_suggestions = generate_dynamic_suggestions(state.stage, &ctx);
+    Ok(())
+}
+
 pub fn run_minimal_cycle_step(state: &mut WorkflowExecutionState) {
     match state.stage {
         WorkflowStage::Plan => {
@@ -271,6 +369,7 @@ pub fn tick_workflow_file(path: impl AsRef<Path>, project: &str) -> Result<Workf
     let path = path.as_ref();
     let mut state = WorkflowExecutionState::ensure_default_state_file(path, project)?;
     run_minimal_cycle_step(&mut state);
+    let _ = refresh_dynamic_suggestions(&mut state, "VISION.md", "CURRENT_DIRECTION.md", "TODO.md");
     state.save(path)?;
     Ok(state)
 }
@@ -281,6 +380,7 @@ pub fn run_minimal_cycle_steps(path: impl AsRef<Path>, project: &str, steps: usi
     for _ in 0..steps {
         run_minimal_cycle_step(&mut state);
     }
+    let _ = refresh_dynamic_suggestions(&mut state, "VISION.md", "CURRENT_DIRECTION.md", "TODO.md");
     state.save(path)?;
     Ok(state)
 }
@@ -463,5 +563,18 @@ mod tests {
         assert_eq!(state.stage, WorkflowStage::BugScan);
         let loaded = WorkflowExecutionState::load(&path).expect("load saved workflow state");
         assert_eq!(loaded.stage, WorkflowStage::BugScan);
+    }
+
+    #[test]
+    fn dynamic_suggestions_follow_current_project_direction() {
+        let ctx = WorkflowDocumentContext {
+            vision: "artifact 可替换执行引擎".to_string(),
+            current_direction: "trust score verify 文档 写放大".to_string(),
+            todo: "同步 CURRENT_* / TODO / STATUS 口径，压平旧阶段残留".to_string(),
+        };
+        let suggestions = generate_dynamic_suggestions(WorkflowStage::Plan, &ctx);
+        assert!(!suggestions.is_empty());
+        assert!(suggestions.iter().any(|s| s.title.contains("trust score")));
+        assert!(suggestions.iter().any(|s| s.kind == WorkflowSuggestionKind::DocSync));
     }
 }
