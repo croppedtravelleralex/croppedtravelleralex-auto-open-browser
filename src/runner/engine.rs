@@ -83,13 +83,15 @@ async fn load_proxy_trust_score(state: &AppState, proxy_id: &str, _now: &str) ->
     Ok(value)
 }
 
-fn selection_reason_summary_for_mode(mode: &str, trust_score_total: Option<i64>) -> String {
-    match (mode, trust_score_total) {
-        ("explicit", Some(score)) => format!("explicit proxy_id selected active proxy directly; current trust score snapshot={score}"),
-        ("sticky", Some(score)) => format!("sticky session reused an active proxy binding; current trust score snapshot={score}"),
-        ("auto", Some(score)) => format!("selected highest-ranked active proxy by trust score ordering; trust_score_total={score}"),
-        ("explicit", None) => "explicit proxy_id selected active proxy directly".to_string(),
-        ("sticky", None) => "sticky session reused an active proxy binding".to_string(),
+fn selection_reason_summary_for_mode(mode: &str, trust_score_total: Option<i64>, candidate_summary: Option<&str>) -> String {
+    match (mode, trust_score_total, candidate_summary) {
+        ("explicit", Some(score), _) => format!("explicit proxy_id selected active proxy directly; current trust score snapshot={score}"),
+        ("sticky", Some(score), _) => format!("sticky session reused an active proxy binding; current trust score snapshot={score}"),
+        ("auto", Some(score), Some(summary)) => format!("selected highest-ranked active proxy by trust score ordering; trust_score_total={score}; {summary}"),
+        ("auto", None, Some(summary)) => format!("selected highest-ranked active proxy by trust score ordering; {summary}"),
+        ("explicit", None, _) => "explicit proxy_id selected active proxy directly".to_string(),
+        ("sticky", None, _) => "sticky session reused an active proxy binding".to_string(),
+        ("auto", Some(score), None) => format!("selected highest-ranked active proxy by trust score ordering; trust_score_total={score}"),
         _ => "selected highest-ranked active proxy by trust score ordering".to_string(),
     }
 }
@@ -481,10 +483,18 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
             obj.insert("trust_score_components".to_string(), trust_score_components.clone());
         }
         apply_proxy_resolution_metadata(policy_obj, sticky_session.as_deref(), Some(resolved));
-        policy_obj.insert("selection_reason_summary".to_string(), json!(selection_reason_summary_for_mode(selection_mode, trust_score_total)));
+        let preview = if selection_mode == "auto" {
+            Some(compute_candidate_preview_with_reasons(state, &now, preview_provider.as_deref(), preview_region.as_deref(), min_score).await?)
+        } else {
+            None
+        };
+        let candidate_summary = preview.as_ref()
+            .and_then(|items| items.first())
+            .and_then(|item| item.get("summary"))
+            .and_then(|value| value.as_str());
+        policy_obj.insert("selection_reason_summary".to_string(), json!(selection_reason_summary_for_mode(selection_mode, trust_score_total, candidate_summary)));
         policy_obj.insert("trust_score_components".to_string(), trust_score_components);
-        if selection_mode == "auto" {
-            let preview = compute_candidate_preview_with_reasons(state, &now, preview_provider.as_deref(), preview_region.as_deref(), min_score).await?;
+        if let Some(preview) = preview {
             policy_obj.insert("candidate_rank_preview".to_string(), json!(preview));
         }
         if let Some(score) = trust_score_total {

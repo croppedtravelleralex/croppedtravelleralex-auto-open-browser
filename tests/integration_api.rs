@@ -2572,7 +2572,9 @@ async fn auto_selection_result_exposes_trust_score_components_and_candidate_prev
     let task_id = create_json.get("id").and_then(|v| v.as_str()).expect("task id").to_string();
     let task_json = wait_for_terminal_status(&app, &task_id).await;
     assert_eq!(task_json.get("proxy_id").and_then(|v| v.as_str()), Some("proxy-explain-best"));
-    assert!(task_json.get("selection_reason_summary").and_then(|v| v.as_str()).unwrap_or("").contains("trust score"));
+    let selection_reason = task_json.get("selection_reason_summary").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(selection_reason.contains("trust score"));
+    assert!(selection_reason.contains("wins on") || selection_reason.contains("penalized by") || selection_reason.contains("better on") || selection_reason.contains("worse on"));
     assert!(task_json.get("trust_score_total").and_then(|v| v.as_i64()).is_some());
     assert!(task_json.get("winner_vs_runner_up_diff").is_some());
     assert!(task_json.get("summary_artifacts").and_then(|v| v.as_array()).map(|items| items.iter().any(|item| item.get("title").and_then(|v| v.as_str()) == Some("proxy selection decision"))).unwrap_or(false));
