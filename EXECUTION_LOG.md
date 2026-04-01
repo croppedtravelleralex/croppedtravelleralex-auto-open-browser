@@ -195,3 +195,25 @@
 - 单测过程中确认 `summarize_component_delta` 不保证同时出现 positive / negative 两类文案，`structured_component_delta` 也只保留 top 5 绝对差异项；按真实行为修正断言。
 - 验证结果：`cargo test` 全绿（39 unit + 75 integration）。
 
+
+## Workflow Action Dispatch
+
+- 读取目标文档并重新排序下一阶段事项 [doc_sync]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：先对齐 VISION/CURRENT_DIRECTION/TODO，避免跑偏
+- 生成 3–5 个下一阶段建议 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：为执行前两个动作提供稳定输入
+
+## Workflow Action Dispatch
+
+- 执行建议第 1 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：默认推进当前最优先事项
+- 执行建议第 2 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：保持双任务推进节奏
+
+## Workflow Action Dispatch
+
+- 执行建议第 1 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：默认推进当前最优先事项
+- 执行建议第 2 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：保持双任务推进节奏
+
+## 2026-04-01 explainability bridge cleanup pass
+
+- 对 explainability 主链剩余的少量 production-side JSON 桥接点做了收口：`runner/engine.rs` 中 run result 的 `summary_artifacts` 注入改为直接使用 `json!(summaries)`，`verify-batch` 任务输入占位改为更自然的 `null` 字面量。
+- 这轮没有继续碰测试侧大量 `.get()` 断言；普查结论是测试层 JSON 访问仍很多，但它们属于验证层残留，不是当前生产主链的主要风险。
+- 验证结果：针对 `verify_batch_enqueues_verify_proxy_tasks` 与 `computed_trust_score_components_returns_typed_breakdown` 的单独复测通过，随后全量 `cargo test` 也保持全绿（39 unit + 75 integration）。
+

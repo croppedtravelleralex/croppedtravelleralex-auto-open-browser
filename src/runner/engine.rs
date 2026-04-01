@@ -1070,7 +1070,7 @@ where
                     "timestamp": finished_at,
                 }))
                 .collect::<Vec<_>>();
-            obj.insert("summary_artifacts".to_string(), serde_json::Value::Array(summaries));
+            obj.insert("summary_artifacts".to_string(), json!(summaries));
         }
         value.to_string()
     });

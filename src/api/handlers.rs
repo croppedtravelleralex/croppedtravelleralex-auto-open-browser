@@ -1717,14 +1717,14 @@ pub async fn verify_batch_proxies(
         let task_id = format!("task-{}", Uuid::new_v4());
         let created_at = now_ts_string();
         let input_json = serde_json::json!({
-            "url": serde_json::Value::Null,
-            "script": serde_json::Value::Null,
+            "url": null,
+            "script": null,
             "timeout_seconds": task_timeout_seconds,
-            "fingerprint_profile_id": serde_json::Value::Null,
-            "fingerprint_profile_version": serde_json::Value::Null,
+            "fingerprint_profile_id": null,
+            "fingerprint_profile_version": null,
             "proxy_id": proxy_id,
             "verify_batch_id": batch_id,
-            "network_policy_json": serde_json::Value::Null,
+            "network_policy_json": null,
         }).to_string();
         sqlx::query(
             r#"INSERT INTO tasks (
