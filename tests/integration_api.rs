@@ -2653,6 +2653,9 @@ async fn status_latest_execution_summaries_include_selection_decision_artifact()
     let summary = selection.get("summary").and_then(|v| v.as_str()).unwrap_or("");
     assert!(summary.contains("trust-score points"));
     assert!(summary.contains("top factors"));
+    assert_eq!(selection.get("task_id").and_then(|v| v.as_str()), Some(task_id.as_str()));
+    assert_eq!(selection.get("task_kind").and_then(|v| v.as_str()), Some("open_page"));
+    assert_eq!(selection.get("task_status").and_then(|v| v.as_str()), Some("succeeded"));
 }
 
 #[tokio::test]

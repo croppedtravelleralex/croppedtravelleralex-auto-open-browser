@@ -131,6 +131,9 @@ pub struct SummaryArtifactResponse {
     pub category: String,
     pub title: String,
     pub summary: String,
+    pub task_id: Option<String>,
+    pub task_kind: Option<String>,
+    pub task_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

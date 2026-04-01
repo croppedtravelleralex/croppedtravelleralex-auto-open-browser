@@ -415,6 +415,9 @@ fn selection_decision_summary_artifact(result_json: Option<&str>) -> Option<Summ
         category: "summary".to_string(),
         title: "proxy selection decision".to_string(),
         summary,
+        task_id: None,
+        task_kind: None,
+        task_status: None,
     })
 }
 
@@ -430,6 +433,9 @@ fn summary_artifacts(result_json: Option<&str>) -> Vec<SummaryArtifactResponse> 
                 category: item.get("category")?.as_str()?.to_string(),
                 title: item.get("title")?.as_str()?.to_string(),
                 summary: item.get("summary")?.as_str()?.to_string(),
+                task_id: None,
+                task_kind: None,
+                task_status: None,
             })
         })
         .collect();
@@ -446,7 +452,14 @@ fn summary_artifacts(result_json: Option<&str>) -> Vec<SummaryArtifactResponse> 
 
 fn latest_execution_summaries(tasks: &[TaskResponse]) -> Vec<SummaryArtifactResponse> {
     tasks.iter()
-        .flat_map(|task| task.summary_artifacts.iter().cloned())
+        .flat_map(|task| {
+            task.summary_artifacts.iter().cloned().map(move |mut artifact| {
+                artifact.task_id = Some(task.id.clone());
+                artifact.task_kind = Some(task.kind.clone());
+                artifact.task_status = Some(task.status.clone());
+                artifact
+            })
+        })
         .take(5)
         .collect()
 }
