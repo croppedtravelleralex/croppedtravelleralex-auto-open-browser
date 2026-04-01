@@ -14,6 +14,7 @@ use AutoOpenBrowser::{
         fake::FakeRunner, lightpanda::LightpandaRunner, runner_concurrency_from_env,
         runner_reclaim_seconds_from_env, spawn_runner_workers, RunnerKind, TaskRunner,
     },
+    workflow::{WorkflowExecutionState, DEFAULT_WORKFLOW_STATE_PATH},
 };
 
 #[tokio::main]
@@ -31,6 +32,7 @@ async fn main() -> Result<()> {
         RunnerKind::Lightpanda => Arc::new(LightpandaRunner::default()),
     };
 
+    let workflow_state = WorkflowExecutionState::ensure_default_state_file(DEFAULT_WORKFLOW_STATE_PATH, "AutoOpenBrowser")?;
     let worker_count = runner_concurrency_from_env();
     let state = AppState {
         db,
@@ -52,6 +54,8 @@ async fn main() -> Result<()> {
     println!("Runner kind: {:?}", RunnerKind::from_env());
     println!("Runner concurrency: {}", worker_count);
     println!("Runner reclaim after: {:?}", runner_reclaim_seconds_from_env());
+    println!("Workflow state initialized at {}", DEFAULT_WORKFLOW_STATE_PATH);
+    println!("Workflow stage: {:?}", workflow_state.stage);
     serve(listener, app).await?;
 
     Ok(())
