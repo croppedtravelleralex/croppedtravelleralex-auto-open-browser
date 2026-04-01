@@ -127,6 +127,22 @@ pub struct WinnerVsRunnerUpDiff {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrustScoreComponents {
+    pub verify_ok_bonus: i64,
+    pub verify_geo_match_bonus: i64,
+    pub smoke_upstream_ok_bonus: i64,
+    pub raw_score_component: i64,
+    pub missing_verify_penalty: i64,
+    pub stale_verify_penalty: i64,
+    pub verify_failed_heavy_penalty: i64,
+    pub verify_failed_light_penalty: i64,
+    pub verify_failed_base_penalty: i64,
+    pub individual_history_penalty: i64,
+    pub provider_risk_penalty: i64,
+    pub provider_region_cluster_penalty: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandidateRankPreviewItem {
     pub id: String,
     pub provider: Option<String>,
@@ -379,7 +395,7 @@ pub struct ProxySelectionExplainResponse {
     pub explain_generated_at: String,
     pub explain_source: String,
     pub selection_reason_summary: String,
-    pub trust_score_components: serde_json::Value,
+    pub trust_score_components: TrustScoreComponents,
     pub candidate_rank_preview: Vec<CandidateRankPreviewItem>,
     pub winner_vs_runner_up_diff: Option<WinnerVsRunnerUpDiff>,
 }

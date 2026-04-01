@@ -110,3 +110,27 @@
 - `get_task_runs` 继续复用抽出的 summary enrichment 能力，保持 run 级 traceability 口径不回退。
 - 验证结果：`cargo test` 全绿（31 unit + 74 integration）。
 
+
+## Workflow Action Dispatch
+
+- 读取目标文档并重新排序下一阶段事项 [doc_sync]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：先对齐 VISION/CURRENT_DIRECTION/TODO，避免跑偏
+- 生成 3–5 个下一阶段建议 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：为执行前两个动作提供稳定输入
+
+## Workflow Action Dispatch
+
+- 执行建议第 1 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：默认推进当前最优先事项
+- 执行建议第 2 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：保持双任务推进节奏
+
+## Workflow Action Dispatch
+
+- 执行建议第 1 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：默认推进当前最优先事项
+- 执行建议第 2 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：保持双任务推进节奏
+
+## 2026-04-01 trust score components typing pass
+
+- 定义 `TrustScoreComponents` DTO，收口 verify/geo/upstream/raw_score/provider risk 等 explainability 分量字段。
+- `computed_trust_score_components()` 改为直接返回 typed struct，`/proxies/:id/explain` 直接暴露 typed components。
+- candidate preview / explain 相关辅助逻辑统一通过 typed components 参与 summary 与 diff 计算，再在 JSON 边界序列化。
+- 补充 typed components 集成测试，锁定 explain endpoint 的字段完整性与形状。
+- 验证结果：`cargo test` 全绿（31 unit + 75 integration）。
+

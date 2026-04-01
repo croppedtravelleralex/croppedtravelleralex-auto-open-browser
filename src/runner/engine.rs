@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::network_identity::proxy_selection::{apply_proxy_resolution_metadata, proxy_selection_base_where_sql, proxy_selection_order_by_cached_trust_score_sql, proxy_selection_order_by_trust_score_sql_with_tuning, resolved_proxy_json};
 use crate::{
-    api::dto::CandidateRankPreviewItem,
+    api::dto::{CandidateRankPreviewItem, TrustScoreComponents},
     app::state::AppState,
     db::init::{refresh_cached_trust_score_for_proxy, refresh_cached_trust_scores_for_provider, refresh_cached_trust_scores_for_provider_region, refresh_provider_risk_snapshot_for_provider, refresh_provider_region_risk_snapshot_for_pair},
     domain::{
@@ -109,59 +109,94 @@ pub fn computed_trust_score_components(
     provider_risk_hit: bool,
     provider_region_cluster_hit: bool,
     now_ts: i64,
-) -> Value {
-    let heavy_failed = matches!(last_verify_status, Some("failed"))
-        && last_verify_at.map(|ts| ts >= now_ts - tuning.recent_failure_heavy_window_seconds).unwrap_or(false);
-    let light_failed = matches!(last_verify_status, Some("failed"))
-        && !heavy_failed
-        && last_verify_at.map(|ts| ts >= now_ts - tuning.recent_failure_light_window_seconds).unwrap_or(false);
-    let base_failed = matches!(last_verify_status, Some("failed")) && !heavy_failed && !light_failed;
-    let missing_verify = last_verify_at.is_none();
-    let stale_verify = last_verify_at.map(|ts| ts <= now_ts - tuning.stale_after_seconds).unwrap_or(false) && !missing_verify;
-    let individual_penalty = if failure_count >= success_count + tuning.provider_failure_margin.saturating_sub(2).max(1) { 18 } else if failure_count > success_count { 8 } else { 0 };
-    json!({
-        "verify_ok_bonus": if matches!(last_verify_status, Some("ok")) { tuning.verify_ok_bonus } else { 0 },
-        "verify_geo_match_bonus": if last_verify_geo_match_ok { tuning.verify_geo_match_bonus } else { 0 },
-        "smoke_upstream_ok_bonus": if last_smoke_upstream_ok { tuning.smoke_upstream_ok_bonus } else { 0 },
-        "verify_failed_heavy_penalty": if heavy_failed { tuning.verify_failed_heavy_penalty } else { 0 },
-        "verify_failed_light_penalty": if light_failed { tuning.verify_failed_light_penalty } else { 0 },
-        "verify_failed_base_penalty": if base_failed { tuning.verify_failed_base_penalty } else { 0 },
-        "missing_verify_penalty": if missing_verify { tuning.missing_verify_penalty } else { 0 },
-        "stale_verify_penalty": if stale_verify { tuning.stale_verify_penalty } else { 0 },
-        "individual_history_penalty": individual_penalty,
-        "provider_risk_penalty": if provider_risk_hit { 10 } else { 0 },
-        "provider_region_cluster_penalty": if provider_region_cluster_hit { 12 } else { 0 },
-        "raw_score_component": (score * tuning.raw_score_weight_tenths as f64).floor() as i64
-    })
+) -> TrustScoreComponents {
+    let verify_ok_bonus = if last_verify_status == Some("ok") { tuning.verify_ok_bonus } else { 0 };
+    let verify_geo_match_bonus = if last_verify_geo_match_ok { tuning.verify_geo_match_bonus } else { 0 };
+    let smoke_upstream_ok_bonus = if last_smoke_upstream_ok { tuning.smoke_upstream_ok_bonus } else { 0 };
+    let raw_score_component = (score * tuning.raw_score_weight_tenths as f64).round() as i64;
+    let missing_verify_penalty = if last_verify_at.is_none() { tuning.missing_verify_penalty } else { 0 };
+    let stale_verify_penalty = if last_verify_at.map(|v| v <= now_ts - tuning.stale_after_seconds).unwrap_or(false) { tuning.stale_verify_penalty } else { 0 };
+    let verify_failed_heavy_penalty = if last_verify_status == Some("failed") && last_verify_at.map(|v| v >= now_ts - tuning.recent_failure_heavy_window_seconds).unwrap_or(false) { tuning.verify_failed_heavy_penalty } else { 0 };
+    let verify_failed_light_penalty = if last_verify_status == Some("failed") && verify_failed_heavy_penalty == 0 && last_verify_at.map(|v| v >= now_ts - tuning.recent_failure_light_window_seconds).unwrap_or(false) { tuning.verify_failed_light_penalty } else { 0 };
+    let verify_failed_base_penalty = if last_verify_status == Some("failed") { tuning.verify_failed_base_penalty } else { 0 };
+    let individual_history_penalty = if failure_count >= success_count + 3 { 2 } else if failure_count > success_count { 1 } else { 0 };
+    let provider_risk_penalty = if provider_risk_hit { tuning.provider_failure_margin } else { 0 };
+    let provider_region_cluster_penalty = if provider_region_cluster_hit { tuning.provider_region_failure_cluster_count } else { 0 };
+
+    TrustScoreComponents {
+        verify_ok_bonus,
+        verify_geo_match_bonus,
+        smoke_upstream_ok_bonus,
+        raw_score_component,
+        missing_verify_penalty,
+        stale_verify_penalty,
+        verify_failed_heavy_penalty,
+        verify_failed_light_penalty,
+        verify_failed_base_penalty,
+        individual_history_penalty,
+        provider_risk_penalty,
+        provider_region_cluster_penalty,
+    }
 }
 
-pub fn summarize_component_advantages(components: &Value) -> String {
-    let obj = match components.as_object() {
-        Some(v) => v,
-        None => return "no component detail available".to_string(),
-    };
-    let mut wins: Vec<&str> = Vec::new();
-    let mut losses: Vec<&str> = Vec::new();
+fn component_value(components: &TrustScoreComponents, key: &str) -> i64 {
+    match key {
+        "verify_ok_bonus" => components.verify_ok_bonus,
+        "verify_geo_match_bonus" => components.verify_geo_match_bonus,
+        "smoke_upstream_ok_bonus" => components.smoke_upstream_ok_bonus,
+        "raw_score_component" => components.raw_score_component,
+        "missing_verify_penalty" => components.missing_verify_penalty,
+        "stale_verify_penalty" => components.stale_verify_penalty,
+        "verify_failed_heavy_penalty" => components.verify_failed_heavy_penalty,
+        "verify_failed_light_penalty" => components.verify_failed_light_penalty,
+        "verify_failed_base_penalty" => components.verify_failed_base_penalty,
+        "individual_history_penalty" => components.individual_history_penalty,
+        "provider_risk_penalty" => components.provider_risk_penalty,
+        "provider_region_cluster_penalty" => components.provider_region_cluster_penalty,
+        _ => 0,
+    }
+}
 
-    let get_i = |k: &str| obj.get(k).and_then(|v| v.as_i64()).unwrap_or(0);
+fn component_keys() -> [&'static str; 12] {
+    [
+        "verify_ok_bonus",
+        "verify_geo_match_bonus",
+        "smoke_upstream_ok_bonus",
+        "raw_score_component",
+        "missing_verify_penalty",
+        "stale_verify_penalty",
+        "verify_failed_heavy_penalty",
+        "verify_failed_light_penalty",
+        "verify_failed_base_penalty",
+        "individual_history_penalty",
+        "provider_risk_penalty",
+        "provider_region_cluster_penalty",
+    ]
+}
 
-    if get_i("verify_ok_bonus") > 0 { wins.push("verify_ok"); }
-    if get_i("verify_geo_match_bonus") > 0 { wins.push("geo_match"); }
-    if get_i("smoke_upstream_ok_bonus") > 0 { wins.push("upstream_ok"); }
-    if get_i("raw_score_component") >= 8 { wins.push("raw_score"); }
+fn positive_component_keys() -> [&'static str; 4] {
+    [
+        "verify_ok_bonus",
+        "verify_geo_match_bonus",
+        "smoke_upstream_ok_bonus",
+        "raw_score_component",
+    ]
+}
 
-    if get_i("missing_verify_penalty") > 0 { losses.push("missing_verify"); }
-    if get_i("stale_verify_penalty") > 0 { losses.push("stale_verify"); }
-    if get_i("verify_failed_heavy_penalty") > 0 || get_i("verify_failed_light_penalty") > 0 || get_i("verify_failed_base_penalty") > 0 { losses.push("verify_failure"); }
-    if get_i("individual_history_penalty") > 0 { losses.push("history_risk"); }
-    if get_i("provider_risk_penalty") > 0 { losses.push("provider_risk"); }
-    if get_i("provider_region_cluster_penalty") > 0 { losses.push("provider_region_risk"); }
-
-    match (wins.is_empty(), losses.is_empty()) {
-        (false, false) => format!("wins on {}; penalized by {}", wins.join(", "), losses.join(", ")),
-        (false, true) => format!("wins on {}", wins.join(", ")),
-        (true, false) => format!("penalized by {}", losses.join(", ")),
-        (true, true) => "mostly driven by neutral/default signals".to_string(),
+fn empty_components() -> TrustScoreComponents {
+    TrustScoreComponents {
+        verify_ok_bonus: 0,
+        verify_geo_match_bonus: 0,
+        smoke_upstream_ok_bonus: 0,
+        raw_score_component: 0,
+        missing_verify_penalty: 0,
+        stale_verify_penalty: 0,
+        verify_failed_heavy_penalty: 0,
+        verify_failed_light_penalty: 0,
+        verify_failed_base_penalty: 0,
+        individual_history_penalty: 0,
+        provider_risk_penalty: 0,
+        provider_region_cluster_penalty: 0,
     }
 }
 
@@ -183,39 +218,82 @@ fn component_label(key: &str) -> &'static str {
     }
 }
 
+pub fn summarize_component_advantages(current: &Value) -> String {
+    let current: TrustScoreComponents = serde_json::from_value(current.clone()).unwrap_or_else(|_| empty_components());
+    let mut positives = Vec::new();
+    let mut penalties = Vec::new();
+    for key in positive_component_keys() {
+        let value = component_value(&current, key);
+        if value > 0 {
+            positives.push(component_label(key));
+        }
+    }
+    for key in [
+        "missing_verify_penalty",
+        "stale_verify_penalty",
+        "verify_failed_heavy_penalty",
+        "verify_failed_light_penalty",
+        "verify_failed_base_penalty",
+        "individual_history_penalty",
+        "provider_risk_penalty",
+        "provider_region_cluster_penalty",
+    ] {
+        let value = component_value(&current, key);
+        if value > 0 {
+            penalties.push(component_label(key));
+        }
+    }
+    let mut parts = Vec::new();
+    if !positives.is_empty() {
+        parts.push(format!("wins on {}", positives.join(", ")));
+    }
+    if !penalties.is_empty() {
+        parts.push(format!("penalized by {}", penalties.join(", ")));
+    }
+    if parts.is_empty() {
+        "neutral component mix".to_string()
+    } else {
+        parts.join("; ")
+    }
+}
+
 pub fn structured_component_delta(current: &Value, baseline: Option<&Value>) -> Value {
-    let keys = [
-        "verify_ok_bonus", "verify_geo_match_bonus", "smoke_upstream_ok_bonus", "raw_score_component",
-        "missing_verify_penalty", "stale_verify_penalty", "verify_failed_heavy_penalty", "verify_failed_light_penalty",
-        "verify_failed_base_penalty", "individual_history_penalty", "provider_risk_penalty", "provider_region_cluster_penalty"
-    ];
-    let positive = ["verify_ok_bonus", "verify_geo_match_bonus", "smoke_upstream_ok_bonus", "raw_score_component"];
-    let winner_total_score = keys.iter().map(|key| current.get(*key).and_then(|v| v.as_i64()).unwrap_or(0)).sum::<i64>();
+    let keys = component_keys();
+    let positive = positive_component_keys();
+    let current: TrustScoreComponents = serde_json::from_value(current.clone()).unwrap_or_else(|_| empty_components());
+    let winner_total_score = keys.iter().map(|key| component_value(&current, key)).sum::<i64>();
+
     let Some(baseline) = baseline else {
-        let mut factors: Vec<Value> = keys.into_iter().map(|key| json!({
-            "factor": key,
-            "label": component_label(key),
-            "winner_value": current.get(key).and_then(|v| v.as_i64()).unwrap_or(0),
-            "runner_up_value": 0,
-            "delta": current.get(key).and_then(|v| v.as_i64()).unwrap_or(0),
-            "direction": "neutral",
-        })).collect();
+        let mut factors: Vec<Value> = keys
+            .into_iter()
+            .map(|key| {
+                let value = component_value(&current, key);
+                json!({
+                    "factor": key,
+                    "label": component_label(key),
+                    "winner_value": value,
+                    "runner_up_value": 0,
+                    "delta": value,
+                    "direction": "neutral",
+                })
+            })
+            .collect();
         factors.sort_by_key(|v| std::cmp::Reverse(v.get("delta").and_then(|v| v.as_i64()).unwrap_or(0).abs()));
         factors.truncate(5);
         return json!({
             "winner_total_score": winner_total_score,
             "runner_up_total_score": 0,
             "score_gap": winner_total_score,
-            "factors": factors
+            "factors": factors,
         });
     };
-    let c = match current.as_object() { Some(v) => v, None => return Value::Null };
-    let b = match baseline.as_object() { Some(v) => v, None => return Value::Null };
-    let runner_up_total_score = keys.iter().map(|key| baseline.get(*key).and_then(|v| v.as_i64()).unwrap_or(0)).sum::<i64>();
+
+    let baseline: TrustScoreComponents = serde_json::from_value(baseline.clone()).unwrap_or_else(|_| empty_components());
+    let runner_up_total_score = keys.iter().map(|key| component_value(&baseline, key)).sum::<i64>();
     let mut factors = Vec::new();
     for key in keys {
-        let cv = c.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
-        let bv = b.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
+        let cv = component_value(&current, key);
+        let bv = component_value(&baseline, key);
         let (delta, direction) = if positive.contains(&key) {
             let d = cv - bv;
             let dir = if d > 0 { "winner" } else if d < 0 { "runner_up" } else { "neutral" };
@@ -240,7 +318,7 @@ pub fn structured_component_delta(current: &Value, baseline: Option<&Value>) -> 
         "winner_total_score": winner_total_score,
         "runner_up_total_score": runner_up_total_score,
         "score_gap": winner_total_score - runner_up_total_score,
-        "factors": factors
+        "factors": factors,
     })
 }
 
@@ -249,32 +327,39 @@ pub fn summarize_component_delta(current: &Value, baseline: Option<&Value>) -> S
     let Some(baseline) = baseline else {
         return current_summary;
     };
-    let c = current.as_object();
-    let b = baseline.as_object();
-    let (Some(c), Some(b)) = (c, b) else { return current_summary; };
+    let current: TrustScoreComponents = serde_json::from_value(current.clone()).unwrap_or_else(|_| empty_components());
+    let baseline: TrustScoreComponents = serde_json::from_value(baseline.clone()).unwrap_or_else(|_| empty_components());
 
     let mut better = Vec::new();
     let mut worse = Vec::new();
-    for key in [
-        "verify_ok_bonus", "verify_geo_match_bonus", "smoke_upstream_ok_bonus", "raw_score_component",
-        "missing_verify_penalty", "stale_verify_penalty", "verify_failed_heavy_penalty", "verify_failed_light_penalty",
-        "verify_failed_base_penalty", "individual_history_penalty", "provider_risk_penalty", "provider_region_cluster_penalty"
-    ] {
-        let cv = c.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
-        let bv = b.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
+    for key in component_keys() {
+        let cv = component_value(&current, key);
+        let bv = component_value(&baseline, key);
         let label = component_label(key);
-        if ["verify_ok_bonus", "verify_geo_match_bonus", "smoke_upstream_ok_bonus", "raw_score_component"].contains(&key) {
-            if cv > bv { better.push(label); }
-            else if cv < bv { worse.push(label); }
-        } else {
-            if cv < bv { better.push(label); }
-            else if cv > bv { worse.push(label); }
+        if positive_component_keys().contains(&key) {
+            if cv > bv {
+                better.push(label);
+            } else if cv < bv {
+                worse.push(label);
+            }
+        } else if cv < bv {
+            better.push(label);
+        } else if cv > bv {
+            worse.push(label);
         }
     }
     let mut parts = Vec::new();
-    if !better.is_empty() { parts.push(format!("better on {}", better.join(", "))); }
-    if !worse.is_empty() { parts.push(format!("worse on {}", worse.join(", "))); }
-    if parts.is_empty() { current_summary } else { format!("{}; {}", current_summary, parts.join("; ")) }
+    if !better.is_empty() {
+        parts.push(format!("better on {}", better.join(", ")));
+    }
+    if !worse.is_empty() {
+        parts.push(format!("worse on {}", worse.join(", ")));
+    }
+    if parts.is_empty() {
+        current_summary
+    } else {
+        format!("{}; {}", current_summary, parts.join("; "))
+    }
 }
 
 async fn compute_top_candidate_component_map(
@@ -283,7 +368,7 @@ async fn compute_top_candidate_component_map(
     provider: Option<&str>,
     region: Option<&str>,
     min_score: f64,
-) -> Result<std::collections::HashMap<String, Value>> {
+) -> Result<std::collections::HashMap<String, TrustScoreComponents>> {
     let query = format!(
         "SELECT id FROM proxies {} ORDER BY {} LIMIT 3",
         proxy_selection_base_where_sql(),
@@ -330,13 +415,15 @@ pub async fn compute_candidate_preview_with_reasons(
     let mut out = Vec::new();
     for (idx, (id, provider, region, score, trust_score_total)) in rows.into_iter().enumerate() {
         let comp = component_map.get(&id);
+        let current_value = comp.cloned().map(|v| serde_json::to_value(v).unwrap_or(Value::Null)).unwrap_or(Value::Null);
+        let baseline_value = baseline.cloned().map(|v| serde_json::to_value(v).unwrap_or(Value::Null));
         let summary = if idx == 0 {
-            summarize_component_delta(comp.unwrap_or(&Value::Null), baseline)
+            summarize_component_delta(&current_value, baseline_value.as_ref())
         } else {
-            summarize_component_advantages(comp.unwrap_or(&Value::Null))
+            summarize_component_advantages(&current_value)
         };
         let diff = if idx == 0 {
-            serde_json::from_value(structured_component_delta(comp.unwrap_or(&Value::Null), baseline)).ok()
+            serde_json::from_value(structured_component_delta(&current_value, baseline_value.as_ref())).ok()
         } else {
             None
         };
@@ -357,7 +444,7 @@ async fn compute_proxy_selection_explain(
     state: &AppState,
     proxy_id: &str,
     now: &str,
-) -> Result<(Option<i64>, Value)> {
+) -> Result<(Option<i64>, TrustScoreComponents)> {
     let provider_risk_query = "SELECT EXISTS(SELECT 1 FROM provider_risk_snapshots s JOIN proxies p ON p.provider = s.provider WHERE p.id = ? AND s.risk_hit != 0)";
     let provider_region_query = "SELECT EXISTS(SELECT 1 FROM provider_region_risk_snapshots s JOIN proxies p ON p.provider = s.provider AND p.region = s.region WHERE p.id = ? AND s.risk_hit != 0)";
     let row = sqlx::query_as::<_, (f64, i64, i64, Option<String>, Option<i64>, Option<i64>, Option<i64>)>(
@@ -367,7 +454,7 @@ async fn compute_proxy_selection_explain(
     .fetch_optional(&state.db)
     .await?;
     let Some((score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at)) = row else {
-        return Ok((None, Value::Null));
+        return Ok((None, empty_components()));
     };
     let provider_risk_hit: i64 = sqlx::query_scalar(provider_risk_query).bind(proxy_id).fetch_one(&state.db).await?;
     let provider_region_cluster_hit: i64 = sqlx::query_scalar(provider_region_query).bind(proxy_id).fetch_one(&state.db).await?;
@@ -481,7 +568,7 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
         let mut resolved = resolved_proxy_json(id, scheme, host, port, username, password, region, country, provider, score);
         if let Some(obj) = resolved.as_object_mut() {
             obj.insert("trust_score_total".to_string(), trust_score_total.map_or(Value::Null, |v| json!(v)));
-            obj.insert("trust_score_components".to_string(), trust_score_components.clone());
+            obj.insert("trust_score_components".to_string(), json!(trust_score_components.clone()));
         }
         apply_proxy_resolution_metadata(policy_obj, sticky_session.as_deref(), Some(resolved));
         let preview = if selection_mode == "auto" {
@@ -494,7 +581,7 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
             .and_then(|items| items.first())
             .map(|item| item.summary.as_str());
         policy_obj.insert("selection_reason_summary".to_string(), json!(selection_reason_summary_for_mode(selection_mode, trust_score_total, candidate_summary)));
-        policy_obj.insert("trust_score_components".to_string(), trust_score_components);
+        policy_obj.insert("trust_score_components".to_string(), json!(trust_score_components));
         if let Some(preview) = preview {
             policy_obj.insert("candidate_rank_preview".to_string(), json!(preview));
         }

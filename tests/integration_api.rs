@@ -3269,3 +3269,30 @@ async fn proxy_explain_candidate_preview_roundtrips_as_typed_shape() {
     assert!(first.get("summary").and_then(|v| v.as_str()).map(|v| !v.is_empty()).unwrap_or(false));
     assert!(first.get("winner_vs_runner_up_diff").is_some());
 }
+
+
+#[tokio::test]
+async fn proxy_explain_trust_score_components_roundtrip_as_typed_shape() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, last_smoke_status, last_smoke_protocol_ok, last_smoke_upstream_ok, last_exit_ip, last_anonymity_level, last_smoke_at, last_verify_status, last_verify_geo_match_ok, last_exit_country, last_exit_region, last_verify_at, created_at, updated_at)
+                  VALUES ('proxy-components-typed', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'pool-components', 'active', 0.77, 5, 1, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, 'ok', 1, 'US', 'Virginia', '9999999999', '1', '1')"#)
+        .execute(&state.db)
+        .await
+        .expect("insert proxy");
+
+    let (status, json) = json_response(
+        &app,
+        Request::builder().uri("/proxies/proxy-components-typed/explain").body(Body::empty()).expect("request"),
+    ).await;
+    assert_eq!(status, StatusCode::OK);
+    let comp = json.get("trust_score_components").expect("components");
+    for key in [
+        "verify_ok_bonus", "verify_geo_match_bonus", "smoke_upstream_ok_bonus", "raw_score_component",
+        "missing_verify_penalty", "stale_verify_penalty", "verify_failed_heavy_penalty", "verify_failed_light_penalty",
+        "verify_failed_base_penalty", "individual_history_penalty", "provider_risk_penalty", "provider_region_cluster_penalty"
+    ] {
+        assert!(comp.get(key).and_then(|v| v.as_i64()).is_some(), "missing key {key}");
+    }
+}
