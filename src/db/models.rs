@@ -31,6 +31,7 @@ pub struct RunRecord {
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
     pub error_message: Option<String>,
+    pub result_json: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

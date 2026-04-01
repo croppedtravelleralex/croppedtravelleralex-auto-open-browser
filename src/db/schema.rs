@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS runs (
     started_at TEXT,
     finished_at TEXT,
     error_message TEXT,
+    result_json TEXT,
     FOREIGN KEY(task_id) REFERENCES tasks(id)
 );
 "#;

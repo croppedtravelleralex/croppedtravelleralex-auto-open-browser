@@ -652,8 +652,8 @@ where
 
         sqlx::query(
             r#"
-            INSERT INTO runs (id, task_id, status, attempt, runner_kind, started_at, finished_at, error_message)
-            VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)
+            INSERT INTO runs (id, task_id, status, attempt, runner_kind, started_at, finished_at, error_message, result_json)
+            VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
             "#,
         )
         .bind(&run_id)
@@ -977,6 +977,9 @@ where
                     "severity": item.severity.as_str(),
                     "title": item.title,
                     "summary": item.summary,
+                    "run_id": run_id,
+                    "attempt": attempt,
+                    "timestamp": finished_at,
                 }))
                 .collect::<Vec<_>>();
             obj.insert("summary_artifacts".to_string(), serde_json::Value::Array(summaries));
@@ -987,13 +990,14 @@ where
 
     let run_update = sqlx::query(
         &format!(
-            "UPDATE runs SET status = ?, finished_at = ?, error_message = ? WHERE id = ? AND status = '{}'",
+            "UPDATE runs SET status = ?, finished_at = ?, error_message = ?, result_json = ? WHERE id = ? AND status = '{}'",
             RUN_STATUS_RUNNING,
         ),
     )
     .bind(run_status)
     .bind(&finished_at)
     .bind(&error_message)
+    .bind(&result_json)
     .bind(&run_id)
     .execute(&state.db)
     .await?;

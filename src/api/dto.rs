@@ -137,6 +137,9 @@ pub struct SummaryArtifactResponse {
     pub task_id: Option<String>,
     pub task_kind: Option<String>,
     pub task_status: Option<String>,
+    pub run_id: Option<String>,
+    pub attempt: Option<i32>,
+    pub timestamp: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,6 +148,8 @@ pub struct TaskResponse {
     pub kind: String,
     pub status: String,
     pub priority: i32,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
     pub summary_artifacts: Vec<SummaryArtifactResponse>,
     pub fingerprint_profile_id: Option<String>,
     pub fingerprint_profile_version: Option<i64>,
@@ -359,6 +364,9 @@ pub struct VerifyBatchListQuery {
 pub struct ProxySelectionExplainResponse {
     pub proxy_id: String,
     pub trust_score_total: Option<i64>,
+    pub trust_score_cached_at: Option<String>,
+    pub explain_generated_at: String,
+    pub explain_source: String,
     pub selection_reason_summary: String,
     pub trust_score_components: serde_json::Value,
     pub candidate_rank_preview: Vec<serde_json::Value>,

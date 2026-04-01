@@ -421,6 +421,9 @@ fn selection_decision_summary_artifact(result_json: Option<&str>) -> Option<Summ
         task_id: None,
         task_kind: None,
         task_status: None,
+        run_id: None,
+        attempt: None,
+        timestamp: None,
     })
 }
 
@@ -442,6 +445,9 @@ fn summary_artifacts(result_json: Option<&str>) -> Vec<SummaryArtifactResponse> 
                 task_id: None,
                 task_kind: None,
                 task_status: None,
+                run_id: item.get("run_id").and_then(|v| v.as_str()).map(|v| v.to_string()),
+                attempt: item.get("attempt").and_then(|v| v.as_i64()).and_then(|v| i32::try_from(v).ok()),
+                timestamp: item.get("timestamp").and_then(|v| v.as_str()).map(|v| v.to_string()),
             })
         })
         .collect();
@@ -462,6 +468,38 @@ fn summary_severity_rank(severity: &str) -> i32 {
         "warning" => 1,
         _ => 2,
     }
+}
+
+fn enrich_summary_artifacts(
+    mut artifacts: Vec<SummaryArtifactResponse>,
+    task_id: Option<&str>,
+    task_kind: Option<&str>,
+    task_status: Option<&str>,
+    run_id: Option<&str>,
+    attempt: Option<i32>,
+    timestamp: Option<&str>,
+) -> Vec<SummaryArtifactResponse> {
+    for artifact in &mut artifacts {
+        if artifact.task_id.is_none() {
+            artifact.task_id = task_id.map(|v| v.to_string());
+        }
+        if artifact.task_kind.is_none() {
+            artifact.task_kind = task_kind.map(|v| v.to_string());
+        }
+        if artifact.task_status.is_none() {
+            artifact.task_status = task_status.map(|v| v.to_string());
+        }
+        if artifact.run_id.is_none() {
+            artifact.run_id = run_id.map(|v| v.to_string());
+        }
+        if artifact.attempt.is_none() {
+            artifact.attempt = attempt;
+        }
+        if artifact.timestamp.is_none() {
+            artifact.timestamp = timestamp.map(|v| v.to_string());
+        }
+    }
+    artifacts
 }
 
 fn latest_execution_summaries(tasks: &[TaskResponse]) -> Vec<SummaryArtifactResponse> {
@@ -675,8 +713,8 @@ pub async fn status(
     let counts = load_counts(&state).await?;
     let limit = sanitize_limit(query.limit, 5, 100);
     let offset = sanitize_offset(query.offset);
-    let rows = sqlx::query_as::<_, (String, String, String, i32, Option<String>, Option<i64>, Option<String>)>(
-        r#"SELECT id, kind, status, priority, fingerprint_profile_id, fingerprint_profile_version, result_json FROM tasks ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"#,
+    let rows = sqlx::query_as::<_, (String, String, String, i32, Option<String>, Option<i64>, Option<String>, Option<String>, Option<String>)>(
+        r#"SELECT id, kind, status, priority, fingerprint_profile_id, fingerprint_profile_version, result_json, started_at, finished_at FROM tasks ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"#,
     )
     .bind(limit)
     .bind(offset)
@@ -691,7 +729,7 @@ pub async fn status(
 
     let latest_tasks: Vec<TaskResponse> = rows
         .into_iter()
-        .map(|(id, kind, status, priority, fingerprint_profile_id, fingerprint_profile_version, result_json)| {
+        .map(|(id, kind, status, priority, fingerprint_profile_id, fingerprint_profile_version, result_json, started_at, finished_at)| {
             let proxy_resolution_status = proxy_resolution_status(result_json.as_deref());
             let (proxy_id, proxy_provider, proxy_region) = proxy_identity(result_json.as_deref());
             let trust_score_total = trust_score_total(result_json.as_deref());
@@ -710,11 +748,21 @@ pub async fn status(
                 trust_score_total,
                 selection_reason_summary,
                 winner_vs_runner_up_diff,
+                summary_artifacts: enrich_summary_artifacts(
+                    summary_artifacts(result_json.as_deref()),
+                    Some(&id),
+                    Some(&kind),
+                    Some(&status),
+                    None,
+                    None,
+                    finished_at.as_deref().or(started_at.as_deref()),
+                ),
                 id,
                 kind,
                 status,
                 priority,
-                summary_artifacts: summary_artifacts(result_json.as_deref()),
+                started_at,
+                finished_at,
                 fingerprint_profile_id,
                 fingerprint_profile_version,
             }
@@ -1027,6 +1075,9 @@ pub async fn explain_proxy_selection(
     Ok(Json(ProxySelectionExplainResponse {
         proxy_id: id,
         trust_score_total,
+        trust_score_cached_at: cached_at,
+        explain_generated_at: now_ts.to_string(),
+        explain_source: "proxy_trust_cache+candidate_preview".to_string(),
         selection_reason_summary,
         trust_score_components: components,
         candidate_rank_preview,
@@ -1109,6 +1160,8 @@ pub async fn create_task(
             kind: payload.kind,
             status: TASK_STATUS_QUEUED.to_string(),
             priority,
+            started_at: None,
+            finished_at: None,
             summary_artifacts: Vec::new(),
             fingerprint_profile_id: payload.fingerprint_profile_id,
             fingerprint_profile_version: profile_version,
@@ -1132,8 +1185,8 @@ pub async fn get_task(
         return Err((StatusCode::BAD_REQUEST, "task id is required".to_string()));
     }
 
-    let row = sqlx::query_as::<_, (String, String, String, i32, Option<String>, Option<i64>, Option<String>)>(
-        r#"SELECT id, kind, status, priority, fingerprint_profile_id, fingerprint_profile_version, result_json FROM tasks WHERE id = ?"#,
+    let row = sqlx::query_as::<_, (String, String, String, i32, Option<String>, Option<i64>, Option<String>, Option<String>, Option<String>)>(
+        r#"SELECT id, kind, status, priority, fingerprint_profile_id, fingerprint_profile_version, result_json, started_at, finished_at FROM tasks WHERE id = ?"#,
     )
     .bind(&task_id)
     .fetch_optional(&state.db)
@@ -1146,7 +1199,7 @@ pub async fn get_task(
     })?;
 
     match row {
-        Some((id, kind, status, priority, fingerprint_profile_id, fingerprint_profile_version, result_json)) => {
+        Some((id, kind, status, priority, fingerprint_profile_id, fingerprint_profile_version, result_json, started_at, finished_at)) => {
             let proxy_resolution_status = proxy_resolution_status(result_json.as_deref());
             let (proxy_id, proxy_provider, proxy_region) = proxy_identity(result_json.as_deref());
             let trust_score_total = trust_score_total(result_json.as_deref());
@@ -1165,11 +1218,21 @@ pub async fn get_task(
                 trust_score_total,
                 selection_reason_summary,
                 winner_vs_runner_up_diff,
+                summary_artifacts: enrich_summary_artifacts(
+                    summary_artifacts(result_json.as_deref()),
+                    Some(&id),
+                    Some(&kind),
+                    Some(&status),
+                    None,
+                    None,
+                    finished_at.as_deref().or(started_at.as_deref()),
+                ),
                 id,
                 kind,
                 status,
                 priority,
-                summary_artifacts: summary_artifacts(result_json.as_deref()),
+                started_at,
+                finished_at,
                 fingerprint_profile_id,
                 fingerprint_profile_version,
             }))
@@ -1185,8 +1248,8 @@ pub async fn get_task_runs(
 ) -> Result<Json<Vec<RunResponse>>, (StatusCode, String)> {
     let limit = sanitize_limit(query.limit, 20, 200);
     let offset = sanitize_offset(query.offset);
-    let rows = sqlx::query_as::<_, (String, String, String, i32, String, Option<String>, Option<String>, Option<String>, Option<String>)>(
-        r#"SELECT r.id, r.task_id, r.status, r.attempt, r.runner_kind, r.started_at, r.finished_at, r.error_message, t.result_json FROM runs r LEFT JOIN tasks t ON t.id = r.task_id WHERE r.task_id = ? ORDER BY r.attempt DESC LIMIT ? OFFSET ?"#,
+    let rows = sqlx::query_as::<_, (String, String, String, i32, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>(
+        r#"SELECT r.id, r.task_id, r.status, r.attempt, r.runner_kind, r.started_at, r.finished_at, r.error_message, r.result_json, t.kind, t.status FROM runs r LEFT JOIN tasks t ON t.id = r.task_id WHERE r.task_id = ? ORDER BY r.attempt DESC LIMIT ? OFFSET ?"#,
     )
     .bind(&task_id)
     .bind(limit)
@@ -1203,16 +1266,27 @@ pub async fn get_task_runs(
     Ok(Json(
         rows.into_iter()
             .map(
-                |(id, task_id, status, attempt, runner_kind, started_at, finished_at, error_message, result_json)| RunResponse {
-                    id,
-                    task_id,
-                    status,
-                    attempt,
-                    runner_kind,
-                    started_at,
-                    finished_at,
-                    error_message,
-                    summary_artifacts: summary_artifacts(result_json.as_deref()),
+                |(id, task_id, status, attempt, runner_kind, started_at, finished_at, error_message, result_json, task_kind, task_status)| {
+                    let summary_timestamp = finished_at.as_deref().or(started_at.as_deref()).map(|v| v.to_string());
+                    RunResponse {
+                        id: id.clone(),
+                        task_id: task_id.clone(),
+                        status,
+                        attempt,
+                        runner_kind,
+                        started_at,
+                        finished_at,
+                        error_message,
+                        summary_artifacts: enrich_summary_artifacts(
+                            summary_artifacts(result_json.as_deref()),
+                            Some(&task_id),
+                            task_kind.as_deref(),
+                            task_status.as_deref(),
+                            Some(&id),
+                            Some(attempt),
+                            summary_timestamp.as_deref(),
+                        ),
+                    }
                 },
             )
             .collect(),
