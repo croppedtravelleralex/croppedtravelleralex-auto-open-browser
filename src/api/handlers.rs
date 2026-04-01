@@ -226,6 +226,11 @@ Host: verify.example:443
         probe_error_category.as_deref(),
         &risk_reasons,
     );
+    let verification_class = classify_verification_class(
+        status,
+        risk_level.as_deref(),
+        failure_stage.as_deref(),
+    );
     let verify_source = Some("local_verify".to_string());
     let now = now_ts_string();
     sqlx::query(r#"UPDATE proxies SET last_checked_at = ?, last_verify_status = ?, last_verify_geo_match_ok = ?, last_exit_ip = ?, last_exit_country = ?, last_exit_region = ?, last_anonymity_level = ?, last_verify_at = ?, last_probe_latency_ms = ?, last_probe_error = ?, last_probe_error_category = ?, last_verify_confidence = ?, last_verify_score_delta = ?, last_verify_source = ?, score = MAX(0.0, score + (? / 100.0)), updated_at = ? WHERE id = ?"#)
@@ -278,6 +283,7 @@ Host: verify.example:443
         probe_error,
         probe_error_category,
         verification_confidence,
+        verification_class,
         verification_score_delta,
         verify_source,
         status: status.to_string(),
@@ -286,6 +292,25 @@ Host: verify.example:443
 }
 
 
+
+
+fn classify_verification_class(
+    status: &str,
+    risk_level: Option<&str>,
+    failure_stage: Option<&str>,
+) -> Option<String> {
+    if status != "ok" {
+        return Some("rejected".to_string());
+    }
+    if failure_stage.is_some() {
+        return Some("rejected".to_string());
+    }
+    match risk_level {
+        Some("low") => Some("trusted".to_string()),
+        Some("medium") | Some("high") => Some("conditional".to_string()),
+        _ => Some("conditional".to_string()),
+    }
+}
 
 fn classify_verify_failure_stage(
     reachable: bool,
