@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{env, net::SocketAddr, sync::Arc};
 
 use anyhow::Result;
 use axum::serve;
@@ -14,11 +14,25 @@ use AutoOpenBrowser::{
         fake::FakeRunner, lightpanda::LightpandaRunner, runner_concurrency_from_env,
         runner_reclaim_seconds_from_env, spawn_runner_workers, RunnerKind, TaskRunner,
     },
-    workflow::{WorkflowExecutionState, DEFAULT_WORKFLOW_STATE_PATH},
+    workflow::{run_minimal_cycle_steps, tick_workflow_file, WorkflowExecutionState, DEFAULT_WORKFLOW_STATE_PATH},
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args: Vec<String> = env::args().collect();
+    if let Some(cmd) = args.get(1).map(|s| s.as_str()) {
+        match cmd {
+            "workflow" => {
+                return handle_workflow_cli(&args[2..]);
+            }
+            "--help" | "-h" | "help" => {
+                print_help();
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
+
     let database_url = "sqlite://data/auto_open_browser.db";
     let db = init_db(database_url).await?;
     let queue = MemoryTaskQueue::new();
@@ -59,4 +73,34 @@ async fn main() -> Result<()> {
     serve(listener, app).await?;
 
     Ok(())
+}
+
+fn handle_workflow_cli(args: &[String]) -> Result<()> {
+    match args.first().map(|s| s.as_str()) {
+        Some("tick") => {
+            let state = tick_workflow_file(DEFAULT_WORKFLOW_STATE_PATH, "AutoOpenBrowser")?;
+            println!("workflow tick ok: stage={:?}, iteration={}, focus={}", state.stage, state.loop_iteration, state.current_focus);
+        }
+        Some("run-steps") => {
+            let steps = args.get(1).and_then(|v| v.parse::<usize>().ok()).unwrap_or(1);
+            let state = run_minimal_cycle_steps(DEFAULT_WORKFLOW_STATE_PATH, "AutoOpenBrowser", steps)?;
+            println!("workflow run-steps ok: steps={}, stage={:?}, iteration={}", steps, state.stage, state.loop_iteration);
+        }
+        Some("show") => {
+            let state = WorkflowExecutionState::ensure_default_state_file(DEFAULT_WORKFLOW_STATE_PATH, "AutoOpenBrowser")?;
+            println!("{}", serde_json::to_string_pretty(&state)?);
+        }
+        _ => {
+            print_help();
+        }
+    }
+    Ok(())
+}
+
+fn print_help() {
+    println!("AutoOpenBrowser usage:");
+    println!("  AutoOpenBrowser                 Start API server");
+    println!("  AutoOpenBrowser workflow show   Show workflow state");
+    println!("  AutoOpenBrowser workflow tick   Execute one workflow tick and persist RUN_STATE.json");
+    println!("  AutoOpenBrowser workflow run-steps <n>   Execute n workflow steps and persist RUN_STATE.json");
 }

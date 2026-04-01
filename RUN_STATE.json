@@ -1,28 +1,45 @@
 {
   "project": "AutoOpenBrowser",
-  "currentRound": 78,
-  "cycleId": 19,
-  "roundType": "plan",
-  "roundStatus": "completed",
-  "pendingRecovery": false,
-  "currentObjective": "进入 build 轮，新增具体 SQLite schema 设计文档。",
-  "lastExecutionAt": "2026-03-26T08:28:02+08:00",
-  "lastBugCheckRound": 76,
-  "lastSummaryRound": 77,
-  "lastOutputFiles": [],
-  "lastVerificationResult": "已完成新一轮 plan，锁定下一步为细化 SQLite schema 草案。",
-  "failureCount": 0,
-  "lastSchedulerDecision": "Executed plan, next=build",
-  "nextRoundType": "build",
-  "nextPlannedAt": "2026-03-26T08:33:02+08:00",
-  "schedulerStatus": "running",
-  "currentFocus": "周期执行协议已落地，当前先补自动执行内核与轮次调度器，下一步进行 1 个 mini-cycle 试运行",
-  "nextRecommendedActions": [
-    "基于状态机进行 1 个 mini-cycle 试运行",
-    "细化 fingerprint / proxy / validation / allocation 的数据库 schema",
-    "初始化 Cargo 工程",
-    "建立 src/api, src/db, src/queue, src/runner, src/network_identity 模块骨架",
-    "继续补 proxy harvester 设计文档"
-  ],
-  "northStar": "构建一个运行在 Ubuntu 上、基于 Rust + SQLite + REST API + 内存任务队列、可先用 fake runner 跑通闭环、后续接入 lightpanda-io/browser 的高性能浏览器自动化系统"
+  "loop_enabled": true,
+  "loop_iteration": 79,
+  "stage": "verify",
+  "bug_cycle_interval": 3,
+  "completed_since_bug_cycle": 1,
+  "consecutive_failures": 0,
+  "current_focus": "执行建议前两项",
+  "current_objective": "完成当前最优先的两个动作并补最小必要验证",
+  "last_result_summary": "已完成 execute 阶段，进入 verify 检查结果稳定性",
+  "next_action_hint": "进入 verify，优先跑定向测试和一致性检查",
+  "next_suggestions": [
+    {
+      "title": "继续推进 trust score 核心化",
+      "priority": 1,
+      "rationale": "CURRENT_DIRECTION 明确要求继续把 proxy selection 收敛到 trust score 核心表达",
+      "kind": "feature"
+    },
+    {
+      "title": "推进 verify / smoke / batch verify 质量闭环",
+      "priority": 2,
+      "rationale": "当前方向要求把 verify 信号统一成更稳定的质量闭环",
+      "kind": "feature"
+    },
+    {
+      "title": "治理高并发写放大与状态竞争",
+      "priority": 3,
+      "rationale": "TODO 与 CURRENT_DIRECTION 都把写放大控制列为当前重点",
+      "kind": "performance"
+    },
+    {
+      "title": "继续同步 CURRENT_*/TODO/STATUS 口径",
+      "priority": 4,
+      "rationale": "当前阶段强调文档、策略、代码主链要保持同一口径",
+      "kind": "doc_sync"
+    },
+    {
+      "title": "补执行引擎边界与 artifact 策略",
+      "priority": 5,
+      "rationale": "VISION 强调可替换执行引擎与长期运行下的结果管理能力",
+      "kind": "refactor"
+    }
+  ]
 }
