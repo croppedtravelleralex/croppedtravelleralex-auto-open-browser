@@ -20,11 +20,24 @@ pub enum WorkflowStage {
     Blocked,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowSuggestionKind {
+    Feature,
+    BugScan,
+    BugFix,
+    DocSync,
+    Refactor,
+    Performance,
+    Test,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WorkflowSuggestion {
     pub title: String,
     pub priority: u8,
     pub rationale: String,
+    pub kind: WorkflowSuggestionKind,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -57,7 +70,7 @@ impl WorkflowExecutionState {
             current_objective: "初始化 workflow state 文件与阶段枚举".to_string(),
             last_result_summary: "尚未开始自动循环".to_string(),
             next_action_hint: "先进入 plan 阶段，读取目标文档并生成建议".to_string(),
-            next_suggestions: Vec::new(),
+            next_suggestions: default_suggestions_for_stage(WorkflowStage::Plan),
         }
     }
 
@@ -87,12 +100,14 @@ impl WorkflowExecutionState {
                 WorkflowStage::Blocked => WorkflowStage::Plan,
             }
         };
+        self.next_suggestions = default_suggestions_for_stage(self.stage);
     }
 
     pub fn mark_failure(&mut self, summary: impl Into<String>) {
         self.consecutive_failures += 1;
         self.last_result_summary = summary.into();
         self.stage = WorkflowStage::BugScan;
+        self.next_suggestions = default_suggestions_for_stage(self.stage);
     }
 
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
@@ -159,10 +174,11 @@ impl WorkflowExecutionState {
                         title: title.to_string(),
                         priority: (idx + 1) as u8,
                         rationale: "从旧 RUN_STATE.json 迁移而来".to_string(),
+                        kind: WorkflowSuggestionKind::Feature,
                     }))
                     .collect::<Vec<_>>()
             })
-            .unwrap_or_default();
+            .unwrap_or_else(|| default_suggestions_for_stage(stage));
 
         Ok(Self {
             project: value.get("project").and_then(|v| v.as_str()).unwrap_or("AutoOpenBrowser").to_string(),
@@ -181,6 +197,68 @@ impl WorkflowExecutionState {
     }
 }
 
+pub fn default_suggestions_for_stage(stage: WorkflowStage) -> Vec<WorkflowSuggestion> {
+    match stage {
+        WorkflowStage::Plan => vec![
+            suggestion("读取目标文档并重新排序下一阶段事项", 1, "先对齐 VISION/CURRENT_DIRECTION/TODO，避免跑偏", WorkflowSuggestionKind::DocSync),
+            suggestion("生成 3–5 个下一阶段建议", 2, "为执行前两个动作提供稳定输入", WorkflowSuggestionKind::Feature),
+            suggestion("同步当前状态与目标口径", 3, "减少 STATUS/TODO/PROGRESS 漂移", WorkflowSuggestionKind::DocSync),
+            suggestion("检查是否需要进入 bug 环", 4, "控制 flaky、warning 和状态漂移", WorkflowSuggestionKind::BugScan),
+            suggestion("准备本轮执行上下文", 5, "为 Execute 阶段降低切换成本", WorkflowSuggestionKind::Refactor),
+        ],
+        WorkflowStage::Execute => vec![
+            suggestion("执行建议第 1 项", 1, "默认推进当前最优先事项", WorkflowSuggestionKind::Feature),
+            suggestion("执行建议第 2 项", 2, "保持双任务推进节奏", WorkflowSuggestionKind::Feature),
+            suggestion("补最小必要测试", 3, "避免推进后没有验证锁定", WorkflowSuggestionKind::Test),
+            suggestion("补必要文档口径", 4, "防止代码与文档脱节", WorkflowSuggestionKind::DocSync),
+            suggestion("记录本轮产出", 5, "为后续 verify/commit 提供依据", WorkflowSuggestionKind::DocSync),
+        ],
+        WorkflowStage::Verify => vec![
+            suggestion("跑定向测试与一致性检查", 1, "验证刚完成的两项动作是否稳定", WorkflowSuggestionKind::Test),
+            suggestion("检查 explain/preview/task/status 口径", 2, "优先发现状态漂移", WorkflowSuggestionKind::BugScan),
+            suggestion("检查 warning / flaky 信号", 3, "提前识别不稳定点", WorkflowSuggestionKind::BugScan),
+            suggestion("记录验证结果", 4, "为 bug 环或 commit 提供结论", WorkflowSuggestionKind::DocSync),
+            suggestion("决定是否进入 bug 环", 5, "控制推进质量", WorkflowSuggestionKind::BugScan),
+        ],
+        WorkflowStage::BugScan => vec![
+            suggestion("查找 bug", 1, "bug 环第一优先项固定为查找问题", WorkflowSuggestionKind::BugScan),
+            suggestion("锁定最值得修的 bug", 2, "避免同时修多个低价值噪音", WorkflowSuggestionKind::BugFix),
+        ],
+        WorkflowStage::BugFix => vec![
+            suggestion("修复 bug", 1, "bug 环第二步固定为最小修复", WorkflowSuggestionKind::BugFix),
+            suggestion("补测试锁住修复", 2, "防止回归", WorkflowSuggestionKind::Test),
+            suggestion("复查是否还有连带问题", 3, "避免只修表面", WorkflowSuggestionKind::BugScan),
+        ],
+        WorkflowStage::DocSync => vec![
+            suggestion("同步 TODO.md", 1, "保持真实优先级", WorkflowSuggestionKind::DocSync),
+            suggestion("同步 STATUS.md / PROGRESS.md", 2, "保持阶段状态与能力描述准确", WorkflowSuggestionKind::DocSync),
+            suggestion("记录执行日志", 3, "为下一轮提供上下文", WorkflowSuggestionKind::DocSync),
+        ],
+        WorkflowStage::CommitPush => vec![
+            suggestion("commit 当前稳定成果", 1, "将本轮稳定成果落盘", WorkflowSuggestionKind::Refactor),
+            suggestion("评估是否 push", 2, "在远程已配置且风险可控时推送", WorkflowSuggestionKind::Refactor),
+            suggestion("准备下一轮 focus", 3, "让循环衔接更顺滑", WorkflowSuggestionKind::DocSync),
+        ],
+        WorkflowStage::Cooldown => vec![
+            suggestion("短暂冷却并等待下一轮", 1, "避免高频抖动与误判", WorkflowSuggestionKind::Performance),
+            suggestion("检查是否要回到 plan", 2, "保持循环节奏", WorkflowSuggestionKind::Refactor),
+        ],
+        WorkflowStage::Blocked => vec![
+            suggestion("识别阻塞原因", 1, "先明确为什么不能继续", WorkflowSuggestionKind::BugScan),
+            suggestion("给出恢复路径", 2, "为人工接管或下一轮恢复做准备", WorkflowSuggestionKind::DocSync),
+        ],
+    }
+}
+
+fn suggestion(title: &str, priority: u8, rationale: &str, kind: WorkflowSuggestionKind) -> WorkflowSuggestion {
+    WorkflowSuggestion {
+        title: title.to_string(),
+        priority,
+        rationale: rationale.to_string(),
+        kind,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,6 +274,7 @@ mod tests {
             title: "实现工作流状态机骨架".to_string(),
             priority: 1,
             rationale: "这是自动循环执行器的起点".to_string(),
+            kind: WorkflowSuggestionKind::Feature,
         }];
         state.save(&path).expect("save state");
         let loaded = WorkflowExecutionState::load(&path).expect("load state");
@@ -209,6 +288,7 @@ mod tests {
         assert!(state.should_enter_bug_cycle());
         state.advance_after_success();
         assert_eq!(state.stage, WorkflowStage::BugScan);
+        assert_eq!(state.next_suggestions[0].kind, WorkflowSuggestionKind::BugScan);
     }
 
     #[test]
@@ -219,6 +299,7 @@ mod tests {
         assert_eq!(state.stage, WorkflowStage::BugScan);
         assert_eq!(state.consecutive_failures, 1);
         assert_eq!(state.last_result_summary, "integration test failed");
+        assert_eq!(state.next_suggestions[0].title, "查找 bug");
     }
 
     #[test]
@@ -251,5 +332,15 @@ mod tests {
         let state = WorkflowExecutionState::ensure_default_state_file(&path, "AutoOpenBrowser").expect("ensure state");
         assert_eq!(state.project, "AutoOpenBrowser");
         assert!(path.exists());
+        assert!(!state.next_suggestions.is_empty());
+    }
+
+    #[test]
+    fn default_plan_suggestions_are_ranked_and_complete() {
+        let suggestions = default_suggestions_for_stage(WorkflowStage::Plan);
+        assert_eq!(suggestions.len(), 5);
+        assert_eq!(suggestions[0].priority, 1);
+        assert_eq!(suggestions[0].kind, WorkflowSuggestionKind::DocSync);
+        assert!(suggestions.iter().all(|s| !s.rationale.is_empty()));
     }
 }
