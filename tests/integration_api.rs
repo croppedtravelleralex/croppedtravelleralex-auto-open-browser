@@ -2666,6 +2666,50 @@ async fn status_latest_execution_summaries_include_selection_decision_artifact()
 }
 
 #[tokio::test]
+async fn status_latest_execution_summaries_prioritize_error_over_info() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, last_smoke_status, last_smoke_protocol_ok, last_smoke_upstream_ok, last_exit_ip, last_anonymity_level, last_smoke_at, last_verify_status, last_verify_geo_match_ok, last_exit_country, last_exit_region, last_verify_at, created_at, updated_at)
+                  VALUES
+                  ('proxy-priority-best', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'pool-p', 'active', 0.74, 7, 1, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, 'ok', 1, 'US', 'Virginia', '9999999999', '1', '1'),
+                  ('proxy-priority-second', 'http', '127.0.0.2', 8081, NULL, NULL, 'us-east', 'US', 'pool-p', 'active', 0.68, 5, 2, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, 'ok', 0, 'US', 'Virginia', '9999999999', '1', '1')"#)
+        .execute(&state.db)
+        .await
+        .expect("insert proxies");
+
+    let ok_payload = serde_json::json!({
+        "kind": "open_page",
+        "url": "https://example.com/summary-priority-ok",
+        "timeout_seconds": 5,
+        "network_policy_json": {"mode": "required_proxy", "provider": "pool-p", "region": "us-east"}
+    });
+    let (_, ok_json) = json_response(&app, Request::builder().method("POST").uri("/tasks").header("content-type", "application/json").body(Body::from(ok_payload.to_string())).expect("request")).await;
+    let ok_task_id = ok_json.get("id").and_then(|v| v.as_str()).expect("ok task id").to_string();
+    let _ = wait_for_terminal_status(&app, &ok_task_id).await;
+
+    let fail_payload = serde_json::json!({
+        "kind": "verify_proxy",
+        "timeout_seconds": 5,
+        "network_policy_json": {"mode": "required_proxy", "provider": "pool-p", "region": "us-east"}
+    });
+    let (_, fail_json) = json_response(&app, Request::builder().method("POST").uri("/tasks").header("content-type", "application/json").body(Body::from(fail_payload.to_string())).expect("request")).await;
+    let fail_task_id = fail_json.get("id").and_then(|v| v.as_str()).expect("fail task id").to_string();
+    let _ = wait_for_terminal_status(&app, &fail_task_id).await;
+
+    let (status, json) = json_response(
+        &app,
+        Request::builder().uri("/status").body(Body::empty()).expect("request"),
+    ).await;
+    assert_eq!(status, StatusCode::OK);
+    let latest = json.get("latest_execution_summaries").and_then(|v| v.as_array()).expect("latest_execution_summaries");
+    assert!(!latest.is_empty());
+    assert_eq!(latest[0].get("severity").and_then(|v| v.as_str()), Some("error"));
+    assert_eq!(latest[0].get("task_id").and_then(|v| v.as_str()), Some(fail_task_id.as_str()));
+    assert_eq!(latest[0].get("key").and_then(|v| v.as_str()), Some("verify_proxy.execution"));
+}
+
+#[tokio::test]
 async fn verify_migration_columns_are_added_for_old_proxy_table() {
     let db_url = unique_db_url();
     let db = init_db(&db_url).await.expect("init db first");

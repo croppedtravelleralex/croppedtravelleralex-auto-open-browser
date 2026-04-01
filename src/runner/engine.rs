@@ -962,6 +962,9 @@ where
                 .iter()
                 .map(|item| json!({
                     "category": format!("{:?}", item.category).to_lowercase(),
+                    "key": item.key,
+                    "source": item.source,
+                    "severity": item.severity.as_str(),
                     "title": item.title,
                     "summary": item.summary,
                 }))

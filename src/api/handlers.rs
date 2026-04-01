@@ -456,26 +456,36 @@ fn summary_artifacts(result_json: Option<&str>) -> Vec<SummaryArtifactResponse> 
     artifacts
 }
 
+fn summary_severity_rank(severity: &str) -> i32 {
+    match severity {
+        "error" => 0,
+        "warning" => 1,
+        _ => 2,
+    }
+}
+
 fn latest_execution_summaries(tasks: &[TaskResponse]) -> Vec<SummaryArtifactResponse> {
     let mut items = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
-    for task in tasks {
+    for (task_index, task) in tasks.iter().enumerate() {
         for mut artifact in task.summary_artifacts.iter().cloned() {
             artifact.task_id = Some(task.id.clone());
             artifact.task_kind = Some(task.kind.clone());
             artifact.task_status = Some(task.status.clone());
             let dedupe_key = format!("{}::{}::{}", artifact.task_id.clone().unwrap_or_default(), artifact.key, artifact.title);
             if seen.insert(dedupe_key) {
-                items.push(artifact);
-                if items.len() >= 5 {
-                    return items;
-                }
+                items.push((task_index, artifact));
             }
         }
     }
 
-    items
+    items.sort_by_key(|(task_index, artifact)| (
+        summary_severity_rank(&artifact.severity),
+        *task_index,
+    ));
+    items.truncate(5);
+    items.into_iter().map(|(_, artifact)| artifact).collect()
 }
 
 fn build_proxy_metrics(tasks: &[TaskResponse]) -> ProxyMetricsResponse {
