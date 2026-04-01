@@ -6,6 +6,7 @@ pub mod db;
 pub mod queue;
 pub mod runner;
 pub mod network_identity;
+pub mod workflow;
 
 use std::sync::Arc;
 
