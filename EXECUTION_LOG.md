@@ -240,3 +240,26 @@
 - 保持 trust score 公式与选择语义不变，只减少重复写与重复范围刷新。
 - 验证结果：关键链路测试（verify task / verify score delta / verify metrics）通过，随后全量 `cargo test` 全绿（39 unit + 75 integration）。
 
+
+## Workflow Action Dispatch
+
+- 读取目标文档并重新排序下一阶段事项 [doc_sync]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：先对齐 VISION/CURRENT_DIRECTION/TODO，避免跑偏
+- 生成 3–5 个下一阶段建议 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：为执行前两个动作提供稳定输入
+
+## Workflow Action Dispatch
+
+- 执行建议第 1 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：默认推进当前最优先事项
+- 执行建议第 2 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：保持双任务推进节奏
+
+## Workflow Action Dispatch
+
+- 执行建议第 1 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：默认推进当前最优先事项
+- 执行建议第 2 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：保持双任务推进节奏
+
+## 2026-04-01 trust cache template extraction pass
+
+- 抽出 `cached_trust_score_update_sql(where_clause)`，将全量 / 单 proxy / provider / provider+region 四套重复的 trust cache `UPDATE proxies SET cached_trust_score = ...` 公式收口到一个公共 SQL 模板。
+- 新增 `db::init` 级单测 `scoped_trust_refresh_helper_updates_provider_group_and_falls_back_for_providerless_proxy`，锁定 scoped trust refresh helper 在 provider-scope 与 providerless fallback 下的行为。
+- 本轮索引策略结论：当前已有 `idx_proxies_selection`、`idx_proxies_verify_state`、`idx_verify_batches_created_at`、`idx_tasks_kind_status` 四类基础索引，现阶段主要瓶颈仍在 refresh 范围与重复 SQL/写放大，不建议仓促新增索引制造额外写成本。
+- 验证结果：关键测试通过，随后全量 `cargo test` 全绿（40 unit + 75 integration）。
+
