@@ -4,7 +4,7 @@
 
 - **状态：** 已进入 **trust-score explainability 主链收口阶段**
 - **日期：** 2026-04-01
-- **当前焦点：** 把 **selection explainability / status 可观测性 / run 级溯源** 从“能用”推进到 **结构稳定、字段统一、测试锁死**。
+- **当前焦点：** 把 **selection explainability / trust cache / verify 回写链** 从“功能可用”推进到 **结构稳定、测试锁死、写放大收缩**。
 
 ## 本文件用途
 
@@ -56,14 +56,11 @@
 
 5. **测试与稳定性**
    - 单测 + 集成测试持续覆盖执行、代理、verify、trust score、explainability 主链
-   - 当前测试状态：**31 unit + 75 integration 全绿**
+   - 当前测试状态：**40 unit + 75 integration 全绿**
 
 ## 当前风险
 
-1. **explainability 主链虽然已收口，但仍有剩余 loose JSON。**
-   `trust_score_components` 和 `candidate_rank_preview` 已强类型化，但主链周边仍存在 `serde_json::Value` 边界，后续还需继续清点与收口。
-
-2. **verify 慢路径仍偏轻。**
+1. **verify 慢路径仍偏轻。**
    当前 verify 已经有 geo / anonymity / upstream 信号，但仍属于轻量探测，距离更真实的出口真实性与匿名性校验链还有差距。
 
 3. **高并发下的 SQL / 写放大治理还没有正式做。**
@@ -78,10 +75,10 @@
 ## 当前下一步
 
 ### P0
-1. **给 `src/api/explainability.rs` 和 `src/runner/engine.rs` 补独立 unit tests**，把 explainability 主链从“集成测试托底”推进到“模块级锁死”。
-2. **做一轮剩余 loose JSON 普查**，继续减少 explainability 主链里的 `serde_json::Value` 漂浮块。
-3. **做一轮高并发性能治理 / 写放大审计**，重点检查 selection、status、trust cache、verify 回写路径。
-4. **推进更真实的 verify 慢路径**，补匿名性 / 地区 / 出口真实性校验链。
+1. **继续收窄 trust cache / risk snapshot 的 refresh 范围**，避免 provider 级刷新在高频 verify 下放大写压力。
+2. **推进更真实的 verify 慢路径**，补匿名性 / 地区 / 出口真实性校验链。
+3. **继续清生产路径里剩余的 typed/JSON 边界**，把 explainability 主链周边再收一轮。
+4. **做一轮 selection / status / trust cache / verify 回写的 explain-level profiling 记录**，把热点和成本量化。
 
 ### P1
 5. 设计代理质量评分系统正式形态。
@@ -91,9 +88,9 @@
 
 ## 本轮体检（2026-04-01）
 
-- **找 bug：** 这轮主要暴露的是 **类型收口过程中的机械编译错**，不是设计错。随着 `candidate_rank_preview`、`trust_score_components` 和 assembler 抽离完成，相关漂移风险已显著下降。
-- **性能评分：** 当前阶段 **8.2/10**。优点是 explainability 主链结构明显更稳、重复 JSON 泥巴更少、测试覆盖持续增强；扣分点是高并发写放大治理和 verify 慢路径仍未真正开刀。
-- **改进建议：** 下一步最值得做的不是再继续堆接口，而是优先完成 **模块级测试锁死 + loose JSON 清点 + 性能热点审计**。
+- **找 bug：** 这轮未再暴露主链设计级错误，更多是并行测试中的瞬时编译噪音；关键主线在全量测试里已稳定回绿。
+- **性能评分：** 当前阶段 **8.4/10**。优点是 explainability 主链已经完成模块级测试锁死，verify/trust refresh 写放大也开始收窄；扣分点仍然是 verify 慢路径和更深层的 refresh 范围优化尚未完成。
+- **改进建议：** 下一步最值得做的是 **refresh 范围继续收窄 + verify 慢路径增强 + 生产路径残余边界继续清理**。
 
 ## Autopilot Sync
 

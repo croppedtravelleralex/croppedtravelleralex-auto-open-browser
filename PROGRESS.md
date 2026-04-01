@@ -54,6 +54,11 @@
 - **2026年04月01日 19时03分00秒** 实现了**候选排名预览强类型化**功能，`candidate_rank_preview` 不再依赖裸 `Value` 拼装，结构更稳定、回归风险更低。
 - **2026年04月01日 19时19分00秒** 实现了**explainability assembler 模块化**功能，将 task/status/explain 共享的解释链拼装逻辑从 handlers 中抽离到独立模块。
 - **2026年04月01日 19时35分00秒** 实现了**trust score 组件强类型化**功能，`trust_score_components` 已使用正式 DTO 表达，并纳入 explain endpoint 与候选对比主链。
+- **2026年04月01日 19时52分00秒** 实现了**explainability assembler 模块级单元测试**功能，为 artifact 归一化、selection decision 注入、context enrich、latest summary 排序与 task explainability 组装补上独立回归锁。
+- **2026年04月01日 20时12分00秒** 实现了**runner explainability helper 模块级单元测试**功能，为 trust score components、差分摘要与结构化 component delta 补上独立测试覆盖。
+- **2026年04月01日 20时33分00秒** 实现了**explainability 生产侧 JSON 桥接收紧**功能，进一步减少主链里的冗余 `Value`/`Null` 手工拼装。
+- **2026年04月01日 20时58分00秒** 实现了**scoped trust refresh 收口**功能，将 verify 与 runner 执行后的重复 trust/risk 刷新路径压缩到统一 helper。
+- **2026年04月01日 21时02分00秒** 实现了**trust cache SQL 公共模板抽取**功能，将多处重复的 cached trust score 更新公式收口为统一模板，并补上 scoped refresh helper 单测。
 
 ---
 
@@ -69,4 +74,4 @@
 
 ## 当前阶段一句话总结
 
-**截至 2026年04月01日 19时35分00秒，项目已经完成“浏览器执行系统 V1 + 代理验证/巡检 V1 + trust cache 主链 + explainability 主链结构化收口 + run 级 traceability + 关键 explain DTO 强类型化”的阶段性建设。**
+**截至 2026年04月01日 21时02分00秒，项目已经完成“浏览器执行系统 V1 + 代理验证/巡检 V1 + trust cache 主链 + explainability 主链结构化收口 + 模块级测试锁死 + scoped trust refresh 收口 + trust cache SQL 模板抽取”的阶段性建设。**

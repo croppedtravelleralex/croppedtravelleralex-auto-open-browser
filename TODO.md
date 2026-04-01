@@ -57,14 +57,18 @@
 - [x] 强类型化 `candidate_rank_preview`
 - [x] 抽离 explainability assembler 到独立模块
 - [x] 强类型化 `trust_score_components`
-- [ ] 给 `src/api/explainability.rs` 补独立 unit tests
-- [ ] 给 `src/runner/engine.rs` 的 explainability 辅助逻辑补独立 unit tests
-- [ ] 做一轮 explainability 主链剩余 loose JSON 普查与收口计划
+- [x] 给 `src/api/explainability.rs` 补独立 unit tests
+- [x] 给 `src/runner/engine.rs` 的 explainability 辅助逻辑补独立 unit tests
+- [x] 做一轮 explainability 主链剩余 loose JSON 普查与收口计划
 - [ ] 继续推进 trust score 核心化，减少分散排序项依赖
+- [ ] 继续收窄 trust cache / risk snapshot refresh 范围
 - [ ] 推进更真实的 verify 慢路径（匿名性 / 地区 / 出口真实性）
-- [ ] 设计高并发下的性能优化与写放大控制策略
+- [x] 设计高并发下的性能优化与写放大控制策略
+- [x] 收口 verify / runner 后的 scoped trust refresh，减少重复 refresh 写放大
+- [x] 抽取 trust cache `UPDATE proxies SET cached_trust_score = ...` 公共 SQL 模板
 - [ ] 设计高级指纹下的性能预算与性能开销控制策略
 - [ ] 设计磁盘使用监控与落盘上限策略
+- [ ] 记录 selection / status / trust cache / verify 回写链的 explain-level profiling 结果
 - [ ] 设计 artifact / log 的保留、清理与归档策略
 
 ## P1
