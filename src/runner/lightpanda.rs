@@ -199,8 +199,8 @@ fn build_result(
         error_message: is_error.then_some(message.clone()),
         summary_artifacts: vec![crate::runner::types::RunnerSummaryArtifact {
             category: if is_error { crate::runner::types::SummaryArtifactCategory::Debug } else { crate::runner::types::SummaryArtifactCategory::Summary },
-            title: "lightpanda runner summary".to_string(),
-            summary: message,
+            title: format!("{} execution summary", task.kind),
+            summary: format!("kind={} status={} message={}", task.kind, status, message),
         }],
     }
 }

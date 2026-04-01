@@ -877,8 +877,8 @@ where
                     error_message: (result.status != "ok").then_some(result.message.clone()),
                     summary_artifacts: vec![crate::runner::types::RunnerSummaryArtifact {
                         category: crate::runner::types::SummaryArtifactCategory::Summary,
-                        title: "verify_proxy summary".to_string(),
-                        summary: format!("proxy {} => {}", proxy_id, result.status),
+                        title: "verify_proxy execution summary".to_string(),
+                        summary: format!("kind=verify_proxy proxy_id={} status={} message={}", proxy_id, result.status, result.message),
                     }],
                 },
                 Err((_status, message)) => RunnerExecutionResult {
@@ -887,8 +887,8 @@ where
                     error_message: Some(message.clone()),
                     summary_artifacts: vec![crate::runner::types::RunnerSummaryArtifact {
                         category: crate::runner::types::SummaryArtifactCategory::Debug,
-                        title: "verify_proxy failure summary".to_string(),
-                        summary: message,
+                        title: "verify_proxy execution summary".to_string(),
+                        summary: format!("kind=verify_proxy proxy_id={} status=failed message={}", proxy_id, message),
                     }],
                 },
             },
@@ -898,8 +898,8 @@ where
                 error_message: Some("verify_proxy task requires proxy_id".to_string()),
                 summary_artifacts: vec![crate::runner::types::RunnerSummaryArtifact {
                     category: crate::runner::types::SummaryArtifactCategory::Debug,
-                    title: "verify_proxy invalid input".to_string(),
-                    summary: "verify_proxy task requires proxy_id".to_string(),
+                    title: "verify_proxy execution summary".to_string(),
+                    summary: "kind=verify_proxy status=failed message=verify_proxy task requires proxy_id".to_string(),
                 }],
             },
         }
