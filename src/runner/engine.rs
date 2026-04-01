@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::network_identity::proxy_selection::{apply_proxy_resolution_metadata, proxy_selection_base_where_sql, proxy_selection_order_by_cached_trust_score_sql, proxy_selection_order_by_trust_score_sql_with_tuning, resolved_proxy_json};
 use crate::{
+    api::dto::CandidateRankPreviewItem,
     app::state::AppState,
     db::init::{refresh_cached_trust_score_for_proxy, refresh_cached_trust_scores_for_provider, refresh_cached_trust_scores_for_provider_region, refresh_provider_risk_snapshot_for_provider, refresh_provider_region_risk_snapshot_for_pair},
     domain::{
@@ -310,7 +311,7 @@ pub async fn compute_candidate_preview_with_reasons(
     provider: Option<&str>,
     region: Option<&str>,
     min_score: f64,
-) -> Result<Vec<Value>> {
+) -> Result<Vec<CandidateRankPreviewItem>> {
     let query = format!(
         "SELECT id, provider, region, score, COALESCE(cached_trust_score, 0) AS trust_score_total FROM proxies {} ORDER BY {} LIMIT 3",
         proxy_selection_base_where_sql(),
@@ -335,19 +336,19 @@ pub async fn compute_candidate_preview_with_reasons(
             summarize_component_advantages(comp.unwrap_or(&Value::Null))
         };
         let diff = if idx == 0 {
-            structured_component_delta(comp.unwrap_or(&Value::Null), baseline)
+            serde_json::from_value(structured_component_delta(comp.unwrap_or(&Value::Null), baseline)).ok()
         } else {
-            Value::Null
+            None
         };
-        out.push(json!({
-            "id": id,
-            "provider": provider,
-            "region": region,
-            "score": score,
-            "trust_score_total": trust_score_total,
-            "summary": summary,
-            "winner_vs_runner_up_diff": diff,
-        }));
+        out.push(CandidateRankPreviewItem {
+            id,
+            provider,
+            region,
+            score,
+            trust_score_total,
+            summary,
+            winner_vs_runner_up_diff: diff,
+        });
     }
     Ok(out)
 }
@@ -488,10 +489,10 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
         } else {
             None
         };
-        let candidate_summary = preview.as_ref()
+        let candidate_summary = preview
+            .as_ref()
             .and_then(|items| items.first())
-            .and_then(|item| item.get("summary"))
-            .and_then(|value| value.as_str());
+            .map(|item| item.summary.as_str());
         policy_obj.insert("selection_reason_summary".to_string(), json!(selection_reason_summary_for_mode(selection_mode, trust_score_total, candidate_summary)));
         policy_obj.insert("trust_score_components".to_string(), trust_score_components);
         if let Some(preview) = preview {

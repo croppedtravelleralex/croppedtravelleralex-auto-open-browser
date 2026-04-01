@@ -62,3 +62,27 @@
 - 补充 run-level trace 与 explain trace 的集成测试，锁定 `run_id / attempt / timestamp` 与 `explain_generated_at / explain_source / trust_score_cached_at`。
 - 验证结果：`cargo test` 全绿（31 unit + 73 integration）。
 
+
+## Workflow Action Dispatch
+
+- 读取目标文档并重新排序下一阶段事项 [doc_sync]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：先对齐 VISION/CURRENT_DIRECTION/TODO，避免跑偏
+- 生成 3–5 个下一阶段建议 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：为执行前两个动作提供稳定输入
+
+## Workflow Action Dispatch
+
+- 执行建议第 1 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：默认推进当前最优先事项
+- 执行建议第 2 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：保持双任务推进节奏
+
+## Workflow Action Dispatch
+
+- 执行建议第 1 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：默认推进当前最优先事项
+- 执行建议第 2 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：保持双任务推进节奏
+
+## 2026-04-01 candidate preview typing pass
+
+- 将 `candidate_rank_preview` 从 `Vec<serde_json::Value>` 收口为强类型 `CandidateRankPreviewItem`。
+- `compute_candidate_preview_with_reasons` 改为直接返回 typed DTO，去掉内部 JSON 硬拼装。
+- `/proxies/:id/explain` 与相关解析逻辑统一复用 typed preview；`winner_vs_runner_up_diff` 直接从 typed preview 首项提取。
+- 补充 typed preview 集成测试，锁定 `id/provider/region/score/trust_score_total/summary/winner_vs_runner_up_diff` 形状。
+- 验证结果：`cargo test` 全绿（31 unit + 74 integration）。
+

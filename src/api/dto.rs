@@ -127,6 +127,17 @@ pub struct WinnerVsRunnerUpDiff {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CandidateRankPreviewItem {
+    pub id: String,
+    pub provider: Option<String>,
+    pub region: Option<String>,
+    pub score: f64,
+    pub trust_score_total: i64,
+    pub summary: String,
+    pub winner_vs_runner_up_diff: Option<WinnerVsRunnerUpDiff>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SummaryArtifactResponse {
     pub category: String,
     pub key: String,
@@ -369,7 +380,7 @@ pub struct ProxySelectionExplainResponse {
     pub explain_source: String,
     pub selection_reason_summary: String,
     pub trust_score_components: serde_json::Value,
-    pub candidate_rank_preview: Vec<serde_json::Value>,
+    pub candidate_rank_preview: Vec<CandidateRankPreviewItem>,
     pub winner_vs_runner_up_diff: Option<WinnerVsRunnerUpDiff>,
 }
 

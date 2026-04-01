@@ -3240,3 +3240,32 @@ async fn proxy_explain_endpoint_exposes_trace_metadata_fields() {
     assert!(json.get("explain_generated_at").and_then(|v| v.as_str()).map(|v| !v.is_empty()).unwrap_or(false));
     assert!(json.get("trust_score_cached_at").and_then(|v| v.as_str()).map(|v| !v.is_empty()).unwrap_or(false));
 }
+
+
+#[tokio::test]
+async fn proxy_explain_candidate_preview_roundtrips_as_typed_shape() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, last_smoke_status, last_smoke_protocol_ok, last_smoke_upstream_ok, last_exit_ip, last_anonymity_level, last_smoke_at, last_verify_status, last_verify_geo_match_ok, last_exit_country, last_exit_region, last_verify_at, created_at, updated_at)
+                  VALUES
+                  ('proxy-typed-preview-best', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'pool-typed', 'active', 0.77, 5, 1, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, 'ok', 1, 'US', 'Virginia', '9999999999', '1', '1'),
+                  ('proxy-typed-preview-second', 'http', '127.0.0.2', 8081, NULL, NULL, 'us-east', 'US', 'pool-typed', 'active', 0.66, 4, 2, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, 'ok', 0, 'US', 'Virginia', '9999999999', '1', '1')"#)
+        .execute(&state.db)
+        .await
+        .expect("insert proxies");
+
+    let (status, json) = json_response(
+        &app,
+        Request::builder().uri("/proxies/proxy-typed-preview-best/explain").body(Body::empty()).expect("request"),
+    ).await;
+    assert_eq!(status, StatusCode::OK);
+    let preview = json.get("candidate_rank_preview").and_then(|v| v.as_array()).expect("candidate_rank_preview");
+    assert!(!preview.is_empty());
+    let first = &preview[0];
+    assert!(first.get("id").and_then(|v| v.as_str()).map(|v| !v.is_empty()).unwrap_or(false));
+    assert!(first.get("score").and_then(|v| v.as_f64()).is_some());
+    assert!(first.get("trust_score_total").and_then(|v| v.as_i64()).is_some());
+    assert!(first.get("summary").and_then(|v| v.as_str()).map(|v| !v.is_empty()).unwrap_or(false));
+    assert!(first.get("winner_vs_runner_up_diff").is_some());
+}
