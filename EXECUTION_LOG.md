@@ -134,3 +134,26 @@
 - 补充 typed components 集成测试，锁定 explain endpoint 的字段完整性与形状。
 - 验证结果：`cargo test` 全绿（31 unit + 75 integration）。
 
+
+## Workflow Action Dispatch
+
+- 读取目标文档并重新排序下一阶段事项 [doc_sync]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：先对齐 VISION/CURRENT_DIRECTION/TODO，避免跑偏
+- 生成 3–5 个下一阶段建议 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：为执行前两个动作提供稳定输入
+
+## Workflow Action Dispatch
+
+- 执行建议第 1 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：默认推进当前最优先事项
+- 执行建议第 2 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：保持双任务推进节奏
+
+## Workflow Action Dispatch
+
+- 执行建议第 1 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：默认推进当前最优先事项
+- 执行建议第 2 项 [feature]: 已执行最小真实动作：将建议写入 EXECUTION_LOG.md；原因：保持双任务推进节奏
+
+## 2026-04-01 explainability unit test pass
+
+- 为 `src/api/explainability.rs` 增加模块级 unit tests，覆盖 summary artifact 归一化、selection decision 自动补注、context enrich、latest summary 排序行为与 task explainability 组装。
+- 利用单测暴露并确认 `latest_execution_summaries` 的真实去重口径是 task-local（`task_id + key + title`），不是全局 key/title 去重；据此修正测试预期而非错误改代码。
+- 让 explainability assembler 不再只依赖 integration tests 托底，开始具备模块级回归锁。
+- 验证结果：`cargo test` 全绿（35 unit + 75 integration）。
+

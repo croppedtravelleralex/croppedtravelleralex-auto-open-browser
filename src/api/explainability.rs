@@ -329,3 +329,269 @@ pub fn build_task_explainability(
         summary_artifacts,
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::dto::{TaskResponse, WinnerVsRunnerUpDirection, WinnerVsRunnerUpFactor};
+    use serde_json::json;
+
+    fn sample_diff() -> WinnerVsRunnerUpDiff {
+        WinnerVsRunnerUpDiff {
+            winner_total_score: 90,
+            runner_up_total_score: 70,
+            score_gap: 20,
+            factors: vec![
+                WinnerVsRunnerUpFactor {
+                    factor: "verify_ok_bonus".to_string(),
+                    label: "verify_ok".to_string(),
+                    winner_value: 30,
+                    runner_up_value: 0,
+                    delta: 30,
+                    direction: WinnerVsRunnerUpDirection::Winner,
+                },
+                WinnerVsRunnerUpFactor {
+                    factor: "provider_risk_penalty".to_string(),
+                    label: "provider_risk".to_string(),
+                    winner_value: 0,
+                    runner_up_value: 5,
+                    delta: 5,
+                    direction: WinnerVsRunnerUpDirection::Winner,
+                },
+            ],
+        }
+    }
+
+    fn sample_result_json_without_selection_artifact() -> String {
+        json!({
+            "fingerprint_profile": {"id": "fp-1", "version": 2},
+            "proxy": {
+                "id": "proxy-1",
+                "provider": "pool-a",
+                "region": "us-east",
+                "resolution_status": "resolved"
+            },
+            "payload": {
+                "network_policy_json": {
+                    "selection_reason_summary": "winner has better trust score",
+                    "trust_score_total": 90,
+                    "candidate_rank_preview": [{
+                        "id": "proxy-1",
+                        "provider": "pool-a",
+                        "region": "us-east",
+                        "score": 0.77,
+                        "trust_score_total": 90,
+                        "summary": "wins on verify_ok; penalized by provider_risk",
+                        "winner_vs_runner_up_diff": sample_diff()
+                    }]
+                }
+            },
+            "summary_artifacts": [{
+                "category": "weird",
+                "title": "fake runner summary",
+                "summary": "ran successfully",
+                "source": "fake_runner",
+                "severity": "notice",
+                "attempt": 1,
+                "timestamp": "123456"
+            }]
+        }).to_string()
+    }
+
+    #[test]
+    fn summary_artifacts_normalize_fields_and_inject_selection_decision() {
+        let raw = sample_result_json_without_selection_artifact();
+        let artifacts = summary_artifacts(Some(&raw));
+        assert_eq!(artifacts.len(), 2);
+
+        let runner = artifacts.iter().find(|a| a.title == "fake runner summary").expect("runner artifact");
+        assert_eq!(runner.category, "summary");
+        assert_eq!(runner.source, "runner.fake");
+        assert_eq!(runner.severity, "info");
+        assert_eq!(runner.attempt, Some(1));
+        assert_eq!(runner.timestamp.as_deref(), Some("123456"));
+        assert_eq!(runner.key, "fake runner summary");
+
+        let selection = artifacts.iter().find(|a| a.title == "proxy selection decision").expect("selection artifact");
+        assert_eq!(selection.key, "proxy.selection.decision");
+        assert_eq!(selection.source, "selection.proxy");
+        assert_eq!(selection.severity, "info");
+        assert!(selection.summary.contains("trust-score points"));
+        assert!(selection.summary.contains("top factors"));
+    }
+
+    #[test]
+    fn enrich_summary_artifacts_backfills_missing_context_only() {
+        let artifacts = vec![
+            SummaryArtifactResponse {
+                category: "summary".to_string(),
+                key: "a".to_string(),
+                source: "runner.fake".to_string(),
+                severity: "info".to_string(),
+                title: "artifact a".to_string(),
+                summary: "ok".to_string(),
+                task_id: None,
+                task_kind: None,
+                task_status: None,
+                run_id: None,
+                attempt: None,
+                timestamp: None,
+            },
+            SummaryArtifactResponse {
+                category: "summary".to_string(),
+                key: "b".to_string(),
+                source: "runner.fake".to_string(),
+                severity: "warning".to_string(),
+                title: "artifact b".to_string(),
+                summary: "warn".to_string(),
+                task_id: Some("task-existing".to_string()),
+                task_kind: Some("open_page".to_string()),
+                task_status: Some("failed".to_string()),
+                run_id: Some("run-existing".to_string()),
+                attempt: Some(9),
+                timestamp: Some("old-ts".to_string()),
+            },
+        ];
+        let enriched = enrich_summary_artifacts(
+            artifacts,
+            Some("task-1"),
+            Some("verify_proxy"),
+            Some("succeeded"),
+            Some("run-1"),
+            Some(2),
+            Some("new-ts"),
+        );
+        assert_eq!(enriched[0].task_id.as_deref(), Some("task-1"));
+        assert_eq!(enriched[0].task_kind.as_deref(), Some("verify_proxy"));
+        assert_eq!(enriched[0].task_status.as_deref(), Some("succeeded"));
+        assert_eq!(enriched[0].run_id.as_deref(), Some("run-1"));
+        assert_eq!(enriched[0].attempt, Some(2));
+        assert_eq!(enriched[0].timestamp.as_deref(), Some("new-ts"));
+
+        assert_eq!(enriched[1].task_id.as_deref(), Some("task-existing"));
+        assert_eq!(enriched[1].run_id.as_deref(), Some("run-existing"));
+        assert_eq!(enriched[1].attempt, Some(9));
+        assert_eq!(enriched[1].timestamp.as_deref(), Some("old-ts"));
+    }
+
+    #[test]
+    fn latest_execution_summaries_prioritize_errors_and_deduplicate() {
+        let tasks = vec![
+            TaskResponse {
+                id: "task-1".to_string(),
+                kind: "open_page".to_string(),
+                status: "succeeded".to_string(),
+                priority: 1,
+                started_at: None,
+                finished_at: None,
+                summary_artifacts: vec![SummaryArtifactResponse {
+                    category: "summary".to_string(),
+                    key: "shared".to_string(),
+                    source: "runner.fake".to_string(),
+                    severity: "info".to_string(),
+                    title: "duplicate title".to_string(),
+                    summary: "first".to_string(),
+                    task_id: None,
+                    task_kind: None,
+                    task_status: None,
+                    run_id: None,
+                    attempt: None,
+                    timestamp: None,
+                }],
+                fingerprint_profile_id: None,
+                fingerprint_profile_version: None,
+                fingerprint_resolution_status: None,
+                proxy_id: None,
+                proxy_provider: None,
+                proxy_region: None,
+                proxy_resolution_status: None,
+                trust_score_total: None,
+                selection_reason_summary: None,
+                winner_vs_runner_up_diff: None,
+            },
+            TaskResponse {
+                id: "task-2".to_string(),
+                kind: "verify_proxy".to_string(),
+                status: "failed".to_string(),
+                priority: 1,
+                started_at: None,
+                finished_at: None,
+                summary_artifacts: vec![
+                    SummaryArtifactResponse {
+                        category: "execution".to_string(),
+                        key: "verify_proxy.execution".to_string(),
+                        source: "runner.fake".to_string(),
+                        severity: "error".to_string(),
+                        title: "verify failed".to_string(),
+                        summary: "boom".to_string(),
+                        task_id: None,
+                        task_kind: None,
+                        task_status: None,
+                        run_id: None,
+                        attempt: None,
+                        timestamp: None,
+                    },
+                    SummaryArtifactResponse {
+                        category: "summary".to_string(),
+                        key: "shared".to_string(),
+                        source: "runner.fake".to_string(),
+                        severity: "warning".to_string(),
+                        title: "duplicate title".to_string(),
+                        summary: "second".to_string(),
+                        task_id: None,
+                        task_kind: None,
+                        task_status: None,
+                        run_id: None,
+                        attempt: None,
+                        timestamp: None,
+                    }
+                ],
+                fingerprint_profile_id: None,
+                fingerprint_profile_version: None,
+                fingerprint_resolution_status: None,
+                proxy_id: None,
+                proxy_provider: None,
+                proxy_region: None,
+                proxy_resolution_status: None,
+                trust_score_total: None,
+                selection_reason_summary: None,
+                winner_vs_runner_up_diff: None,
+            },
+        ];
+
+        let latest = latest_execution_summaries(&tasks);
+        assert_eq!(latest.len(), 3);
+        assert_eq!(latest[0].severity, "error");
+        assert_eq!(latest[0].task_id.as_deref(), Some("task-2"));
+        assert!(latest.iter().filter(|item| item.title == "duplicate title").count() == 2);
+        assert!(latest.iter().any(|item| item.task_id.as_deref() == Some("task-1")));
+    }
+
+    #[test]
+    fn build_task_explainability_assembles_expected_fields() {
+        let raw = sample_result_json_without_selection_artifact();
+        let explain = build_task_explainability(
+            Some("fp-1"),
+            Some(2),
+            Some(&raw),
+            Some("task-1"),
+            Some("open_page"),
+            Some("succeeded"),
+            Some("999999"),
+        );
+        assert_eq!(explain.fingerprint_resolution_status.as_deref(), Some("resolved"));
+        assert_eq!(explain.proxy_id.as_deref(), Some("proxy-1"));
+        assert_eq!(explain.proxy_provider.as_deref(), Some("pool-a"));
+        assert_eq!(explain.proxy_region.as_deref(), Some("us-east"));
+        assert_eq!(explain.proxy_resolution_status.as_deref(), Some("resolved"));
+        assert_eq!(explain.trust_score_total, Some(90));
+        assert_eq!(explain.selection_reason_summary.as_deref(), Some("winner has better trust score"));
+        assert!(explain.winner_vs_runner_up_diff.is_some());
+        assert_eq!(explain.summary_artifacts.len(), 2);
+        assert!(explain.summary_artifacts.iter().all(|a| a.task_id.as_deref() == Some("task-1")));
+        assert!(explain.summary_artifacts.iter().all(|a| a.task_kind.as_deref() == Some("open_page")));
+        assert!(explain.summary_artifacts.iter().all(|a| a.task_status.as_deref() == Some("succeeded")));
+        assert!(explain.summary_artifacts.iter().all(|a| a.timestamp.as_deref().is_some()));
+    }
+}
