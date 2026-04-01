@@ -197,6 +197,75 @@ impl WorkflowExecutionState {
     }
 }
 
+
+pub fn run_minimal_cycle_step(state: &mut WorkflowExecutionState) {
+    match state.stage {
+        WorkflowStage::Plan => {
+            state.current_focus = "对齐目标文档并生成本轮建议".to_string();
+            state.current_objective = "读取 VISION/CURRENT_DIRECTION/TODO 后确定前两项动作".to_string();
+            state.last_result_summary = "已完成 plan 阶段，生成下一阶段建议".to_string();
+            state.next_action_hint = "进入 execute，默认执行前两个建议".to_string();
+            state.advance_after_success();
+        }
+        WorkflowStage::Execute => {
+            state.current_focus = "执行建议前两项".to_string();
+            state.current_objective = "完成当前最优先的两个动作并补最小必要验证".to_string();
+            state.last_result_summary = "已完成 execute 阶段，进入 verify 检查结果稳定性".to_string();
+            state.next_action_hint = "进入 verify，优先跑定向测试和一致性检查".to_string();
+            state.advance_after_success();
+        }
+        WorkflowStage::Verify => {
+            state.current_focus = "验证本轮结果并检查是否需要 bug 环".to_string();
+            state.current_objective = "完成测试、口径一致性检查与风险扫描".to_string();
+            state.last_result_summary = "已完成 verify 阶段，准备同步文档".to_string();
+            state.next_action_hint = "进入 doc_sync，更新 TODO/STATUS/PROGRESS".to_string();
+            state.advance_after_success();
+        }
+        WorkflowStage::BugScan => {
+            state.current_focus = "进入 bug 环并锁定问题".to_string();
+            state.current_objective = "优先定位最值得修复的问题".to_string();
+            state.last_result_summary = "已完成 bug_scan，进入 bug_fix".to_string();
+            state.next_action_hint = "进入 bug_fix，最小修复并补测试".to_string();
+            state.advance_after_success();
+        }
+        WorkflowStage::BugFix => {
+            state.current_focus = "修复 bug 并锁测试".to_string();
+            state.current_objective = "完成最小修复，准备提交".to_string();
+            state.last_result_summary = "已完成 bug_fix，准备 commit/push".to_string();
+            state.next_action_hint = "进入 commit_push，提交稳定成果".to_string();
+            state.advance_after_success();
+        }
+        WorkflowStage::DocSync => {
+            state.current_focus = "同步文档与当前阶段状态".to_string();
+            state.current_objective = "更新 TODO/STATUS/PROGRESS 与执行日志".to_string();
+            state.last_result_summary = "已完成 doc_sync，进入 cooldown".to_string();
+            state.next_action_hint = "进入 cooldown，短暂冷却后回到 plan".to_string();
+            state.advance_after_success();
+        }
+        WorkflowStage::CommitPush => {
+            state.current_focus = "提交当前稳定成果".to_string();
+            state.current_objective = "commit 当前轮结果，并按条件评估 push".to_string();
+            state.last_result_summary = "已完成 commit_push，进入 cooldown".to_string();
+            state.next_action_hint = "进入 cooldown，然后回到 plan".to_string();
+            state.advance_after_success();
+        }
+        WorkflowStage::Cooldown => {
+            state.current_focus = "冷却并准备下一轮".to_string();
+            state.current_objective = "结束当前小循环，回到 plan".to_string();
+            state.last_result_summary = "已完成 cooldown，下一轮重新进入 plan".to_string();
+            state.next_action_hint = "重新读取文档并生成新建议".to_string();
+            state.advance_after_success();
+        }
+        WorkflowStage::Blocked => {
+            state.current_focus = "解除阻塞".to_string();
+            state.current_objective = "先识别阻塞，再回到 plan".to_string();
+            state.last_result_summary = "blocked 已切回 plan，等待恢复推进".to_string();
+            state.next_action_hint = "回到 plan 重新评估".to_string();
+            state.advance_after_success();
+        }
+    }
+}
+
 pub fn default_suggestions_for_stage(stage: WorkflowStage) -> Vec<WorkflowSuggestion> {
     match stage {
         WorkflowStage::Plan => vec![
@@ -342,5 +411,18 @@ mod tests {
         assert_eq!(suggestions[0].priority, 1);
         assert_eq!(suggestions[0].kind, WorkflowSuggestionKind::DocSync);
         assert!(suggestions.iter().all(|s| !s.rationale.is_empty()));
+    }
+
+    #[test]
+    fn minimal_cycle_step_advances_plan_execute_verify() {
+        let mut state = WorkflowExecutionState::new("AutoOpenBrowser");
+        assert_eq!(state.stage, WorkflowStage::Plan);
+        run_minimal_cycle_step(&mut state);
+        assert_eq!(state.stage, WorkflowStage::Execute);
+        run_minimal_cycle_step(&mut state);
+        assert_eq!(state.stage, WorkflowStage::Verify);
+        run_minimal_cycle_step(&mut state);
+        assert_eq!(state.stage, WorkflowStage::BugScan);
+        assert!(state.last_result_summary.contains("verify"));
     }
 }
