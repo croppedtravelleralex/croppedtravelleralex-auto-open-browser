@@ -116,3 +116,4 @@
 - **2026年04月02日 23时38分00秒** 完成了**stage summary maintenance rules**，明确入口摘要只承担当前阶段控制面职责，不承载长规划；后续如需新增内容，需先确保 STATUS / TODO / PROGRESS 口径一致。
 - **2026年04月02日 23时43分00秒** 完成了**entry summary update checklist**，把入口摘要更新前的必要一致性核对收成独立 checklist，避免后续凭感觉修改入口摘要。
 - **2026年04月02日 23时44分00秒** 完成了**entry summary update example**，补了一份入口摘要更新示例，并把 README 中的入口摘要更新规则显式指向 checklist，进一步降低后续先改 README 再补 source-of-truth 文档的风险。
+- **2026年04月02日 23时46分00秒** 完成了**stage entry consistency 检查脚本**，新增 `scripts/check_stage_entry_consistency.py` 用于快速核对 README / STATUS / TODO / PROGRESS 当前阶段口径是否一致。

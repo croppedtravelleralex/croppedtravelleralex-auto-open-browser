@@ -94,7 +94,8 @@
 - [x] 保持入口摘要精简稳定，避免重新膨胀成长规划文档
 - [x] 后续若入口摘要新增内容，先做一致性检查再更新
 - [x] 若未来重开入口摘要更新，先按 checklist 逐项核对
-- [ ] 若后续阶段切换，再按 example + checklist 联动更新入口摘要
+- [x] 若后续阶段切换，再按 example + checklist 联动更新入口摘要
+- [ ] 后续若入口摘要更新，先运行 `python3 scripts/check_stage_entry_consistency.py`
 - [ ] 继续清 explainability summary / artifact 文案质量
 - [ ] 推进更真实的 verify 慢路径（匿名性 / 地区 / 出口真实性之外的稳定质量信号）
 - [x] 设计高并发下的性能优化与写放大控制策略

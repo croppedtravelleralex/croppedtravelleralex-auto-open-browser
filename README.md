@@ -1,4 +1,6 @@
 ## Current Stage Snapshot
+`python3 scripts/check_stage_entry_consistency.py` validates that README / STATUS / TODO / PROGRESS still agree on the current stage control surface.
+
 
 - **Stage status:** stable / closed enough to freeze
 - **Completed in current stage:** providerScope lazy refresh validated; provider risk version / seen v1 landed; selection intentionally unchanged; explain-side version visibility landed and validated; providerRegion deferred for this stage
