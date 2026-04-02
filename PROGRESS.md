@@ -118,3 +118,4 @@
 - **2026年04月02日 23时44分00秒** 完成了**entry summary update example**，补了一份入口摘要更新示例，并把 README 中的入口摘要更新规则显式指向 checklist，进一步降低后续先改 README 再补 source-of-truth 文档的风险。
 - **2026年04月02日 23时46分00秒** 完成了**stage entry consistency 检查脚本**，新增 `scripts/check_stage_entry_consistency.py` 用于快速核对 README / STATUS / TODO / PROGRESS 当前阶段口径是否一致。
 - **2026年04月02日 23时50分00秒** 完成了**stage entry consistency 脚本使用说明**，补齐脚本运行时机、预期结果与标准 flow，进一步把入口摘要维护从经验动作收成固定流程。
+- **2026年04月02日 23时52分00秒** 完成了**stage entry maintenance flow helper**，新增未来阶段维护示例文档与 `scripts/stage_entry_maintenance_flow.sh`，把入口摘要维护前检查与更新顺序进一步固化为可执行 flow。

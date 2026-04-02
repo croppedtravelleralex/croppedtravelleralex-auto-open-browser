@@ -1,6 +1,7 @@
 ## Current Stage Snapshot
 `python3 scripts/check_stage_entry_consistency.py` validates that README / STATUS / TODO / PROGRESS still agree on the current stage control surface.
 Usage flow: see `docs/stage-entry-consistency-script-usage.md`.
+Maintenance helper: `bash scripts/stage_entry_maintenance_flow.sh`.
 
 
 - **Stage status:** stable / closed enough to freeze
