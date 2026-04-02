@@ -13,6 +13,7 @@
 1. `/status` latest summary 中增加更稳定的短句模板
 2. `/proxies/:id/explain` 中让 factor summary 更少依赖内部 label 语义
 3. 区分“奖励项”和“惩罚项”的自然语言口吻，减少都写成同一种格式
+4. 将 `provider_scope_flip / provider_region_scope_flip` 这类内部机制，继续限制在 perf / diagnostics 侧，不直接泄漏到用户向 summary 文案
 
 ## 当前判断
 
