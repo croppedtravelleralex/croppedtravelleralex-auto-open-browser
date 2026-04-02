@@ -61,10 +61,15 @@
 - [x] 给 `src/runner/engine.rs` 的 explainability 辅助逻辑补独立 unit tests
 - [x] 做一轮 explainability 主链剩余 loose JSON 普查与收口计划
 - [ ] 继续推进 trust score 核心化，减少分散排序项依赖
-- [ ] 为 explicit / sticky / no-match 增加结构化 explain 字段
-- [ ] 固化 eligibility gate vs ranking score 的正式边界
+- [x] 为 explicit / sticky / no-match 增加结构化 explain 字段
+- [x] 固化 eligibility gate vs ranking score 的正式边界
+- [x] 将 `soft_min_score` 作为 soft ranking penalty 并入 trust score
+- [x] 将 verify 慢路径底层风险信号并入 trust score（anonymity / latency / exit-ip / probe-error / geo-mismatch / region-mismatch）
+- [ ] 评估 provider/provider×region 风险汇总是否吸收 verify 慢路径新信号
 - [ ] 继续收窄 trust cache / risk snapshot refresh 范围
-- [ ] 推进更真实的 verify 慢路径（匿名性 / 地区 / 出口真实性）
+- [ ] 做一轮 selection / trust cache / verify 回写 / status 聚合 profiling
+- [ ] 继续清 explainability summary / artifact 文案质量
+- [ ] 推进更真实的 verify 慢路径（匿名性 / 地区 / 出口真实性之外的稳定质量信号）
 - [x] 设计高并发下的性能优化与写放大控制策略
 - [x] 收口 verify / runner 后的 scoped trust refresh，减少重复 refresh 写放大
 - [x] 抽取 trust cache `UPDATE proxies SET cached_trust_score = ...` 公共 SQL 模板

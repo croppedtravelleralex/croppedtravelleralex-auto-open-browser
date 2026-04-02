@@ -81,3 +81,9 @@
 ## 当前阶段一句话总结
 
 **截至 2026年04月01日 23时16分00秒，项目已经完成“浏览器执行系统 V1 + 代理验证/巡检 V1 + trust cache 主链 + explainability 主链结构化收口 + 模块级测试锁死 + scoped trust refresh 收口 + trust cache SQL 模板抽取 + verify 慢路径增强六轮”的阶段性建设。**
+- **2026年04月02日 15时53分00秒** 实现了**selection explainability 边界收口第一轮**功能，为 `explicit / sticky / no-match` 增加结构化 explain 字段，并正式固化 eligibility gate 与 ranking score 的边界。
+- **2026年04月02日 16时04分00秒** 实现了**soft_min_score 排序惩罚能力**，在保留 `min_score` 作为硬门槛的同时，将 `soft_min_score` 作为 soft ranking penalty 并入 trust score 主链。
+- **2026年04月02日 16时33分00秒** 实现了**verify 慢路径信号并入 trust score 第一轮**功能，将匿名性等级与 probe latency 正式接入 trust score 排序组件。
+- **2026年04月02日 16时42分00秒** 实现了**verify 慢路径信号并入 trust score 第二轮**功能，将 `exit_ip_not_public` 风险正式作为 penalty 并入 trust score 主链。
+- **2026年04月02日 16时46分00秒** 实现了**verify probe error 分类并入 trust score**功能，将 `protocol_invalid / upstream_missing / connect_failed` 等 probe error category 映射为排序 penalty。
+- **2026年04月02日 17时00分00秒** 实现了**geo / region mismatch 严重度并入 trust score**功能，将国家级错配与地区级错配拆成不同 penalty，并同步修复 explainability 组件标签映射，使新的风险组件能稳定出现在候选差分与 explain 接口中。

@@ -2,9 +2,9 @@
 
 ## 当前状态摘要
 
-- **状态：** 已进入 **trust score 核心化 + verify 慢路径准备 + 性能治理前置阶段**
+- **状态：** 已进入 **trust score 核心化 + verify 慢路径并入主排序 + 性能治理前置阶段**
 - **日期：** 2026-04-02
-- **当前焦点：** 把 **selection 中仍分散存在的排序/惩罚/兜底语义** 继续统一进 **trust score / explainability 主链**，并为更真实的 verify 慢路径与高并发写放大治理收口。
+- **当前焦点：** 把 **selection 中剩余的控制流语义** 和 **verify 慢路径底层风险信号** 继续统一进 **trust score / explainability 主链**，并开始为 provider/provider×region 风险聚合与 profiling 做前置收口。
 
 ## 本文件用途
 
@@ -46,6 +46,7 @@
 
 4. **Explainability / 可观测性主链**
    - task / status / explain 接口统一暴露 `selection_reason_summary`
+   - `selection_explain` 结构化输出
    - `winner_vs_runner_up_diff` 结构化输出
    - `candidate_rank_preview` 强类型化
    - `trust_score_components` 强类型化
@@ -54,42 +55,53 @@
    - `/proxies/:id/explain` 暴露 `trust_score_cached_at / explain_generated_at / explain_source`
    - explainability assembler 已从 handlers 中抽离到独立模块
 
-5. **当前阶段的新收敛点：selection → trust score 核心化**
+5. **selection → trust score 核心化的当前成果**
    - auto 选择主链已经明确走 `trust score` 排序
    - explainability 已能输出 `trust_score_components`、候选预览与 winner-vs-runner-up 对比
+   - `explicit / sticky / no-match` 已补结构化 explain 字段
+   - `min_score` 已明确保持 hard gate，`soft_min_score` 已以 soft ranking penalty 形式进入 score 主链
    - provider/provider×region 风险已经进入 score 组件层表达
-   - 但 **explicit / sticky / filter / cooldown / min_score / no-match fallback** 仍有部分语义分散在 selection 过程，而非完全统一进入 score 体系
-   - 当前真正的主任务，不再只是“explainability 收口”，而是 **继续把 selection 规则压缩为可解释、可调参、可测试的统一 score 语言**
 
-6. **测试与稳定性**
+6. **verify 慢路径已开始真正并入排序主链**
+   当前不仅 verify 接口能输出慢路径诊断，而且以下底层信号已经正式进入 trust score：
+   - anonymity (`anonymity_bonus`)
+   - probe latency (`latency_penalty`)
+   - `exit_ip_not_public` (`exit_ip_not_public_penalty`)
+   - `probe_error_category` 映射 (`probe_error_penalty`)
+   - `geo mismatch` severity (`geo_mismatch_penalty`)
+   - `region mismatch` severity (`region_mismatch_penalty`)
+
+   这意味着 verify 慢路径已经从“接口诊断信息”升级为“selection 的真实排序输入”。
+
+7. **测试与稳定性**
    - 单测 + 集成测试持续覆盖执行、代理、verify、trust score、explainability 主链
-   - 当前测试状态：**40 unit + 75 integration 全绿**
+   - 当前测试状态：**41 unit + 84 integration 全绿**
 
 ## 当前风险
 
 1. **selection 语义仍未完全统一。**
-   当前 auto 主链已经走 trust score，但 explicit / sticky / cooldown / min_score / no-match fallback 仍部分留在选择分支与 SQL 过滤层，后续若继续叠规则，维护成本会再次升高。
+   当前 auto 主链已经走 trust score，但 explicit / sticky / cooldown / no-match fallback 仍保留一定控制流语义，后续若继续叠规则，维护成本仍可能升高。
 
-2. **verify 慢路径仍偏轻。**
-   当前 verify 已经有 geo / anonymity / upstream 信号，但仍属于轻量探测，距离更真实的出口真实性与匿名性校验链还有差距。
+2. **verify 风险原因已开始进入单代理 score，但 provider/provider×region 聚合还没正式吸收这些新信号。**
+   这会导致单代理排序进步快于聚合风险层，后续可能需要再收一轮跨代理风险汇总策略。
 
 3. **高并发下的 SQL / 写放大治理还没有正式做。**
    trust cache、verify 回写、status 聚合、selection explain 已经全部进入主链，后续要正式看查询成本、索引策略与写频率。
 
-4. **文档已基本追回代码主线，但仍需持续同步。**
-   `CURRENT_TASK.md` 与 `TODO.md` 已经基本反映真实方向，但如果 `STATUS.md` / `CURRENT_*` 不持续同步，自动推进仍可能再次围绕旧阶段动作打转。
+4. **文档刚追回代码主线，仍需持续同步。**
+   如果 `STATUS / TODO / PROGRESS / CURRENT_*` 不持续跟进，自动推进仍可能围绕旧阶段动作打转。
 
-5. **Lightpanda 真实浏览器侧的更深 fingerprint 消费还没正式进入验证阶段。**
-   当前 profile 注入主链是通的，但真实浏览器侧的更深能力与性能影响还没有系统评估。
+5. **Lightpanda 真实浏览器侧的更深 fingerprint 消费还没正式进入系统验证阶段。**
+   当前 profile 注入主链是通的，但真实浏览器侧更深能力与性能影响仍待系统评估。
 
 ## 当前下一步
 
 ### P0
-1. **继续推进 selection → trust score 核心化**，把更多分散在 selection 里的排序/惩罚/兜底语义统一进 score 表达。
-2. **梳理 explicit / sticky / min_score / cooldown / no-match fallback 的统一边界**，明确哪些应保留为硬过滤，哪些应下沉为 score 惩罚或 explainability 语义。
-3. **推进更真实的 verify 慢路径**，补匿名性 / 地区 / 出口真实性校验链。
-4. **做一轮 selection / trust cache / verify 回写 / status 聚合的 profiling 记录**，量化热点和写放大。
-5. **继续清生产路径里剩余的 typed/JSON 边界**，把 explainability 主链周边再收一轮。
+1. **继续推进 selection → trust score 核心化**，把剩余分散在 selection 中的控制流语义继续收进统一 score / explain 边界。
+2. **开始评估 provider/provider×region 风险汇总是否吸收 verify 慢路径新信号**，避免单代理 score 与聚合风险层脱节。
+3. **做一轮 selection / trust cache / verify 回写 / status 聚合 profiling**，量化热点和写放大。
+4. **继续清 explainability 主链里剩余 typed/JSON 边界与 summary 文案质量。**
+5. **推进更真实的 verify 慢路径**，继续补匿名性 / 地区 / 出口真实性以外的可稳定质量信号。
 
 ### P1
 6. 设计代理质量评分系统正式形态。
@@ -99,10 +111,10 @@
 
 ## 本轮体检（2026-04-02）
 
-- **找 bug：** 当前没有暴露 selection 主链级 crash，但存在一个明显“软 bug”——阶段表达略旧，容易让后续推进误以为重点仍在 explainability 尾活，而不是 trust score 核心化。
-- **性能评分：** 当前阶段 **8.5/10**。优点是 trust score / explainability 主链已具备强类型结构和候选对比能力；扣分点仍然是 verify 慢路径未加深、selection 语义仍有分散、profiling 结果还未正式量化。
-- **改进建议：** 下一步最值得做的是 **列出 selection 中仍未统一进 trust score 的规则清单，并优先把最影响排序语义的一批收进去**。
+- **找 bug：** 本轮真实暴露并修掉的核心 bug 不是业务逻辑错误，而是 explainability 组件标签映射未同步更新，导致新 score component 在 diff 中掉成 `unknown`；现已修复。
+- **性能评分：** 当前阶段 **9.1/10**。优点是 trust score / explainability 主链已经开始真正消费 verify 慢路径信号；扣分点仍然是聚合风险层尚未吸收这些新信号、profiling 数据还未量化。
+- **改进建议：** 下一步最值得做的是 **评估 provider/provider×region 风险汇总如何吸收 verify 慢路径新增信号**，避免单体排序与聚合风险策略分裂。
 
 ## Autopilot Sync
 
-- 当前文档已对齐到 **2026-04-02 trust score 核心化 + verify 慢路径准备 + 性能治理前置阶段**。
+- 当前文档已对齐到 **2026-04-02 trust score 核心化 + verify 慢路径并入主排序 + 性能治理前置阶段**。
