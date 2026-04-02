@@ -6,6 +6,7 @@
 - **Reopen rule:** deferred lines reopen only when their documented reopen conditions are explicitly met
 - **Fast answer to "where are we now?":** refresh-scope work is closed for this stage; current state is stable; deferred lines remain frozen unless reopen conditions are met
 
+
 # AutoOpenBrowser
 
 高性能浏览器自动化系统，运行在 Ubuntu 上。
