@@ -138,3 +138,19 @@
 - `provider_region_scope_flip` 仍主要出现在 batch verify 真执行回写链
 - `/status` 与 `/proxies/:id/explain` 即使补到更贴近真实的样本，仍明显轻于写侧范围刷新
 - 当前没有足够证据支持优先优化读侧；下一步更值得进入 provider 级 refresh 范围收窄方案设计
+
+
+## V1 收益验证补样（provider risk version / seen）
+
+样本汇总：
+- `provider_scope_flip` 命中：**3 次**，且全部表现为 `lazy_current_proxy`
+- `provider_region_scope_flip` 命中：**1 次**
+- proxy 级 refresh 耗时样本：**[5, 4, 5] ms**
+- provider 级 refresh 耗时样本：**[]**
+- provider_region 级 refresh 耗时样本：**[5] ms**
+- `/status` 读侧耗时样本：**[4] ms**
+
+### 当前判断
+- `provider_scope_flip` 这一层已经稳定切换到 **当前 proxy 懒更新**，不再看到 provider 级 cached trust refresh 命中
+- `provider_region_scope_flip` 仍保留 provider_region 范围刷新语义，因此当前第二阶段不宜贸然一起改
+- 在现有样本下，v1 已经足以支持一个保守结论：**先继续延后 providerRegion，优先巩固 providerScope 这一层的收益判断**
