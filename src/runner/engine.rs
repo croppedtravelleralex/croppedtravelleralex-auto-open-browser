@@ -7,7 +7,10 @@ use uuid::Uuid;
 
 use crate::network_identity::proxy_selection::{apply_proxy_resolution_metadata, proxy_selection_base_where_sql, proxy_selection_order_by_cached_trust_score_sql, proxy_selection_order_by_trust_score_sql_with_tuning, resolved_proxy_json};
 use crate::{
-    api::dto::{CandidateRankPreviewItem, TrustScoreComponents},
+    api::dto::{
+        CandidateRankPreviewItem, TrustScoreComponents, WinnerVsRunnerUpDiff,
+        WinnerVsRunnerUpDirection, WinnerVsRunnerUpFactor,
+    },
     app::state::AppState,
     db::init::refresh_proxy_trust_views_for_scope,
     domain::{
@@ -95,6 +98,22 @@ fn selection_reason_summary_for_mode(mode: &str, trust_score_total: Option<i64>,
         ("auto", Some(score), None) => format!("selected highest-ranked active proxy by trust score ordering; trust_score_total={score}"),
         _ => "selected highest-ranked active proxy by trust score ordering".to_string(),
     }
+}
+
+fn selection_explain_json(
+    selection_mode: &str,
+    fallback_reason: Option<&str>,
+    no_match_reason_code: Option<&str>,
+) -> Value {
+    let eligibility_gate = "active+cooldown+provider/region+min_score";
+    json!({
+        "selection_mode": selection_mode,
+        "explicit_override": selection_mode == "explicit",
+        "sticky_reused": selection_mode == "sticky",
+        "eligibility_gate": eligibility_gate,
+        "fallback_reason": fallback_reason,
+        "no_match_reason_code": no_match_reason_code,
+    })
 }
 
 pub fn computed_trust_score_components(
@@ -218,12 +237,11 @@ fn component_label(key: &str) -> &'static str {
     }
 }
 
-pub fn summarize_component_advantages(current: &Value) -> String {
-    let current: TrustScoreComponents = serde_json::from_value(current.clone()).unwrap_or_else(|_| empty_components());
+pub fn summarize_component_advantages(current: &TrustScoreComponents) -> String {
     let mut positives = Vec::new();
     let mut penalties = Vec::new();
     for key in positive_component_keys() {
-        let value = component_value(&current, key);
+        let value = component_value(current, key);
         if value > 0 {
             positives.push(component_label(key));
         }
@@ -238,7 +256,7 @@ pub fn summarize_component_advantages(current: &Value) -> String {
         "provider_risk_penalty",
         "provider_region_cluster_penalty",
     ] {
-        let value = component_value(&current, key);
+        let value = component_value(current, key);
         if value > 0 {
             penalties.push(component_label(key));
         }
@@ -257,84 +275,87 @@ pub fn summarize_component_advantages(current: &Value) -> String {
     }
 }
 
-pub fn structured_component_delta(current: &Value, baseline: Option<&Value>) -> Value {
+pub fn structured_component_delta(current: &TrustScoreComponents, baseline: Option<&TrustScoreComponents>) -> WinnerVsRunnerUpDiff {
     let keys = component_keys();
     let positive = positive_component_keys();
-    let current: TrustScoreComponents = serde_json::from_value(current.clone()).unwrap_or_else(|_| empty_components());
-    let winner_total_score = keys.iter().map(|key| component_value(&current, key)).sum::<i64>();
+    let winner_total_score = keys.iter().map(|key| component_value(current, key)).sum::<i64>();
 
     let Some(baseline) = baseline else {
-        let mut factors: Vec<Value> = keys
+        let mut factors: Vec<WinnerVsRunnerUpFactor> = keys
             .into_iter()
             .map(|key| {
-                let value = component_value(&current, key);
-                json!({
-                    "factor": key,
-                    "label": component_label(key),
-                    "winner_value": value,
-                    "runner_up_value": 0,
-                    "delta": value,
-                    "direction": "neutral",
-                })
+                let value = component_value(current, key);
+                WinnerVsRunnerUpFactor {
+                    factor: key.to_string(),
+                    label: component_label(key).to_string(),
+                    winner_value: value,
+                    runner_up_value: 0,
+                    delta: value,
+                    direction: WinnerVsRunnerUpDirection::Neutral,
+                }
             })
             .collect();
-        factors.sort_by_key(|v| std::cmp::Reverse(v.get("delta").and_then(|v| v.as_i64()).unwrap_or(0).abs()));
+        factors.sort_by_key(|v| std::cmp::Reverse(v.delta.abs()));
         factors.truncate(5);
-        return json!({
-            "winner_total_score": winner_total_score,
-            "runner_up_total_score": 0,
-            "score_gap": winner_total_score,
-            "factors": factors,
-        });
+        return WinnerVsRunnerUpDiff {
+            winner_total_score,
+            runner_up_total_score: 0,
+            score_gap: winner_total_score,
+            factors,
+        };
     };
 
-    let baseline: TrustScoreComponents = serde_json::from_value(baseline.clone()).unwrap_or_else(|_| empty_components());
-    let runner_up_total_score = keys.iter().map(|key| component_value(&baseline, key)).sum::<i64>();
+    let runner_up_total_score = keys.iter().map(|key| component_value(baseline, key)).sum::<i64>();
     let mut factors = Vec::new();
     for key in keys {
-        let cv = component_value(&current, key);
-        let bv = component_value(&baseline, key);
-        let (delta, direction) = if positive.contains(&key) {
-            let d = cv - bv;
-            let dir = if d > 0 { "winner" } else if d < 0 { "runner_up" } else { "neutral" };
-            (d, dir)
+        let cv = component_value(current, key);
+        let bv = component_value(baseline, key);
+        let direction = if positive.contains(&key) {
+            if cv > bv {
+                WinnerVsRunnerUpDirection::Winner
+            } else if cv < bv {
+                WinnerVsRunnerUpDirection::RunnerUp
+            } else {
+                WinnerVsRunnerUpDirection::Neutral
+            }
+        } else if cv < bv {
+            WinnerVsRunnerUpDirection::Winner
+        } else if cv > bv {
+            WinnerVsRunnerUpDirection::RunnerUp
         } else {
-            let d = bv - cv;
-            let dir = if d > 0 { "winner" } else if d < 0 { "runner_up" } else { "neutral" };
-            (d, dir)
+            WinnerVsRunnerUpDirection::Neutral
         };
-        factors.push(json!({
-            "factor": key,
-            "label": component_label(key),
-            "winner_value": cv,
-            "runner_up_value": bv,
-            "delta": delta,
-            "direction": direction,
-        }));
+        let delta = if positive.contains(&key) { cv - bv } else { bv - cv };
+        factors.push(WinnerVsRunnerUpFactor {
+            factor: key.to_string(),
+            label: component_label(key).to_string(),
+            winner_value: cv,
+            runner_up_value: bv,
+            delta,
+            direction,
+        });
     }
-    factors.sort_by_key(|v| std::cmp::Reverse(v.get("delta").and_then(|v| v.as_i64()).unwrap_or(0).abs()));
+    factors.sort_by_key(|v| std::cmp::Reverse(v.delta.abs()));
     factors.truncate(5);
-    json!({
-        "winner_total_score": winner_total_score,
-        "runner_up_total_score": runner_up_total_score,
-        "score_gap": winner_total_score - runner_up_total_score,
-        "factors": factors,
-    })
+    WinnerVsRunnerUpDiff {
+        winner_total_score,
+        runner_up_total_score,
+        score_gap: winner_total_score - runner_up_total_score,
+        factors,
+    }
 }
 
-pub fn summarize_component_delta(current: &Value, baseline: Option<&Value>) -> String {
+pub fn summarize_component_delta(current: &TrustScoreComponents, baseline: Option<&TrustScoreComponents>) -> String {
     let current_summary = summarize_component_advantages(current);
     let Some(baseline) = baseline else {
         return current_summary;
     };
-    let current: TrustScoreComponents = serde_json::from_value(current.clone()).unwrap_or_else(|_| empty_components());
-    let baseline: TrustScoreComponents = serde_json::from_value(baseline.clone()).unwrap_or_else(|_| empty_components());
 
     let mut better = Vec::new();
     let mut worse = Vec::new();
     for key in component_keys() {
-        let cv = component_value(&current, key);
-        let bv = component_value(&baseline, key);
+        let cv = component_value(current, key);
+        let bv = component_value(baseline, key);
         let label = component_label(key);
         if positive_component_keys().contains(&key) {
             if cv > bv {
@@ -376,10 +397,10 @@ async fn compute_top_candidate_component_map(
     );
     let ids = sqlx::query_scalar::<_, String>(&query)
         .bind(now)
-        .bind(provider)
-        .bind(provider)
-        .bind(region)
-        .bind(region)
+         .bind(provider.as_deref())
+        .bind(provider.as_deref())
+        .bind(region.as_deref())
+        .bind(region.as_deref())
         .bind(min_score)
         .fetch_all(&state.db).await?;
     let mut map = std::collections::HashMap::new();
@@ -404,10 +425,10 @@ pub async fn compute_candidate_preview_with_reasons(
     );
     let rows = sqlx::query_as::<_, (String, Option<String>, Option<String>, f64, i64)>(&query)
         .bind(now)
-        .bind(provider)
-        .bind(provider)
-        .bind(region)
-        .bind(region)
+         .bind(provider.as_deref())
+        .bind(provider.as_deref())
+        .bind(region.as_deref())
+        .bind(region.as_deref())
         .bind(min_score)
         .fetch_all(&state.db).await?;
     let component_map = compute_top_candidate_component_map(state, now, provider, region, min_score).await?;
@@ -415,15 +436,14 @@ pub async fn compute_candidate_preview_with_reasons(
     let mut out = Vec::new();
     for (idx, (id, provider, region, score, trust_score_total)) in rows.into_iter().enumerate() {
         let comp = component_map.get(&id);
-        let current_value = comp.cloned().map(|v| serde_json::to_value(v).unwrap_or(Value::Null)).unwrap_or(Value::Null);
-        let baseline_value = baseline.cloned().map(|v| serde_json::to_value(v).unwrap_or(Value::Null));
+        let current_components = comp.cloned().unwrap_or_else(empty_components);
         let summary = if idx == 0 {
-            summarize_component_delta(&current_value, baseline_value.as_ref())
+            summarize_component_delta(&current_components, baseline)
         } else {
-            summarize_component_advantages(&current_value)
+            summarize_component_advantages(&current_components)
         };
         let diff = if idx == 0 {
-            serde_json::from_value(structured_component_delta(&current_value, baseline_value.as_ref())).ok()
+            Some(structured_component_delta(&current_components, baseline))
         } else {
             None
         };
@@ -475,10 +495,14 @@ async fn compute_proxy_selection_explain(
     Ok((trust_score_total, components))
 }
 
+// Selection boundary note:
+// - eligibility gate: active / cooldown / provider-region filter / min_score
+// - ranking score: trust_score_total + trust_score_components ordering within eligible candidates
+// explicit and sticky are currently control-flow overrides around the ranking path, not score components.
 async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) -> Result<()> {
     let Some(policy) = payload.get_mut("network_policy_json") else { return Ok(()); };
     let Some(policy_obj) = policy.as_object_mut() else { return Ok(()); };
-    let mode = policy_obj.get("mode").and_then(|v| v.as_str()).unwrap_or("direct");
+    let mode = policy_obj.get("mode").and_then(|v| v.as_str()).unwrap_or("direct").to_string();
     if mode == "direct" {
         policy_obj.insert("proxy_resolution_status".to_string(), json!("direct"));
         policy_obj.insert("selection_reason_summary".to_string(), json!("direct mode bypasses proxy pool selection"));
@@ -487,11 +511,12 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
 
     let now = now_ts_string();
     let sticky_session = policy_obj.get("sticky_session").and_then(|v| v.as_str()).map(|v| v.to_string());
-    let provider = policy_obj.get("provider").and_then(|v| v.as_str());
-    let region = policy_obj.get("region").and_then(|v| v.as_str());
+    let provider = policy_obj.get("provider").and_then(|v| v.as_str()).map(|v| v.to_string());
+    let region = policy_obj.get("region").and_then(|v| v.as_str()).map(|v| v.to_string());
     let min_score = policy_obj.get("min_score").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
     let mut selection_mode = "auto";
+    let mut fallback_reason: Option<&str> = None;
     let mut row = if let Some(proxy_id) = policy_obj.get("proxy_id").and_then(|v| v.as_str()) {
         selection_mode = "explicit";
         sqlx::query_as::<_, (String, String, String, i64, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, f64)>(
@@ -524,10 +549,10 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
         .bind(sticky_session)
         .bind(&now)
         .bind(&now)
-        .bind(provider)
-        .bind(provider)
-        .bind(region)
-        .bind(region)
+         .bind(provider.as_deref())
+        .bind(provider.as_deref())
+        .bind(region.as_deref())
+        .bind(region.as_deref())
         .bind(min_score)
         .fetch_optional(&state.db)
         .await?
@@ -536,6 +561,10 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
     };
 
     if row.is_none() && selection_mode != "explicit" {
+        fallback_reason = Some(match selection_mode {
+            "sticky" => "sticky_binding_missing_or_ineligible_then_fallback_to_auto",
+            _ => "auto_primary_path",
+        });
         selection_mode = "auto";
         let query = format!(
             "SELECT id, scheme, host, port, username, password, region, country, provider, score
@@ -548,10 +577,10 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
         );
         row = sqlx::query_as::<_, (String, String, String, i64, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, f64)>(&query)
             .bind(&now)
-            .bind(provider)
-            .bind(provider)
-            .bind(region)
-            .bind(region)
+             .bind(provider.as_deref())
+            .bind(provider.as_deref())
+            .bind(region.as_deref())
+            .bind(region.as_deref())
             .bind(min_score)
             .bind(&now)
             .bind(&now)
@@ -581,6 +610,7 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
             .and_then(|items| items.first())
             .map(|item| item.summary.as_str());
         policy_obj.insert("selection_reason_summary".to_string(), json!(selection_reason_summary_for_mode(selection_mode, trust_score_total, candidate_summary)));
+        policy_obj.insert("selection_explain".to_string(), selection_explain_json(selection_mode, fallback_reason, None));
         policy_obj.insert("trust_score_components".to_string(), json!(trust_score_components));
         if let Some(preview) = preview {
             policy_obj.insert("candidate_rank_preview".to_string(), json!(preview));
@@ -590,7 +620,25 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
         }
     } else {
         apply_proxy_resolution_metadata(policy_obj, sticky_session.as_deref(), None);
+        let no_match_reason_code = if mode == "direct" {
+            Some("direct_mode")
+        } else if policy_obj.get("proxy_id").and_then(|v| v.as_str()).is_some() {
+            Some("explicit_proxy_missing_or_ineligible")
+        } else if sticky_session.is_some() {
+            Some("sticky_binding_missing_or_ineligible")
+        } else if provider.is_some() && region.is_some() {
+            Some("no_match_after_provider_region_filters")
+        } else if provider.is_some() {
+            Some("no_match_after_provider_filter")
+        } else if region.is_some() {
+            Some("no_match_after_region_filter")
+        } else if min_score > 0.0 {
+            Some("no_match_after_min_score_filter")
+        } else {
+            Some("no_eligible_active_proxy")
+        };
         policy_obj.insert("selection_reason_summary".to_string(), json!("no eligible active proxy matched the current policy filters"));
+        policy_obj.insert("selection_explain".to_string(), selection_explain_json(selection_mode, fallback_reason, no_match_reason_code));
     }
     Ok(())
 }
@@ -1168,40 +1216,39 @@ where
 mod tests {
     use super::*;
     use crate::network_identity::proxy_selection::default_proxy_selection_tuning;
-    use serde_json::json;
 
-    fn components_json() -> Value {
-        json!({
-            "verify_ok_bonus": 30,
-            "verify_geo_match_bonus": 20,
-            "smoke_upstream_ok_bonus": 10,
-            "raw_score_component": 8,
-            "missing_verify_penalty": 0,
-            "stale_verify_penalty": 0,
-            "verify_failed_heavy_penalty": 0,
-            "verify_failed_light_penalty": 0,
-            "verify_failed_base_penalty": 0,
-            "individual_history_penalty": 0,
-            "provider_risk_penalty": 0,
-            "provider_region_cluster_penalty": 0,
-        })
+    fn components_json() -> TrustScoreComponents {
+        TrustScoreComponents {
+            verify_ok_bonus: 30,
+            verify_geo_match_bonus: 20,
+            smoke_upstream_ok_bonus: 10,
+            raw_score_component: 8,
+            missing_verify_penalty: 0,
+            stale_verify_penalty: 0,
+            verify_failed_heavy_penalty: 0,
+            verify_failed_light_penalty: 0,
+            verify_failed_base_penalty: 0,
+            individual_history_penalty: 0,
+            provider_risk_penalty: 0,
+            provider_region_cluster_penalty: 0,
+        }
     }
 
-    fn penalty_components_json() -> Value {
-        json!({
-            "verify_ok_bonus": 0,
-            "verify_geo_match_bonus": 0,
-            "smoke_upstream_ok_bonus": 0,
-            "raw_score_component": 0,
-            "missing_verify_penalty": 12,
-            "stale_verify_penalty": 8,
-            "verify_failed_heavy_penalty": 30,
-            "verify_failed_light_penalty": 15,
-            "verify_failed_base_penalty": 10,
-            "individual_history_penalty": 2,
-            "provider_risk_penalty": 5,
-            "provider_region_cluster_penalty": 2,
-        })
+    fn penalty_components_json() -> TrustScoreComponents {
+        TrustScoreComponents {
+            verify_ok_bonus: 0,
+            verify_geo_match_bonus: 0,
+            smoke_upstream_ok_bonus: 0,
+            raw_score_component: 0,
+            missing_verify_penalty: 12,
+            stale_verify_penalty: 8,
+            verify_failed_heavy_penalty: 30,
+            verify_failed_light_penalty: 15,
+            verify_failed_base_penalty: 10,
+            individual_history_penalty: 2,
+            provider_risk_penalty: 5,
+            provider_region_cluster_penalty: 2,
+        }
     }
 
     #[test]
@@ -1247,16 +1294,16 @@ mod tests {
         let current = components_json();
         let baseline = penalty_components_json();
         let delta = structured_component_delta(&current, Some(&baseline));
-        assert_eq!(delta.get("winner_total_score").and_then(|v| v.as_i64()), Some(68));
-        assert_eq!(delta.get("runner_up_total_score").and_then(|v| v.as_i64()), Some(84));
-        assert_eq!(delta.get("score_gap").and_then(|v| v.as_i64()), Some(-16));
-        let factors = delta.get("factors").and_then(|v| v.as_array()).expect("factors");
+        assert_eq!(delta.winner_total_score, 68);
+        assert_eq!(delta.runner_up_total_score, 84);
+        assert_eq!(delta.score_gap, -16);
+        let factors = &delta.factors;
         assert!(!factors.is_empty());
         assert!(factors.len() <= 5);
-        let labels: Vec<&str> = factors.iter().filter_map(|item| item.get("label").and_then(|v| v.as_str())).collect();
+        let labels: Vec<&str> = factors.iter().map(|item| item.label.as_str()).collect();
         assert!(labels.iter().any(|label| *label == "verify_ok"));
         assert!(labels.iter().any(|label| matches!(*label, "missing_verify" | "stale_verify" | "verify_failed_heavy" | "verify_failed_light" | "verify_failed_base" | "history_risk" | "provider_risk" | "provider_region_risk")));
-        let deltas: Vec<i64> = factors.iter().filter_map(|item| item.get("delta").and_then(|v| v.as_i64()).map(|d| d.abs())).collect();
+        let deltas: Vec<i64> = factors.iter().map(|item| item.delta.abs()).collect();
         assert!(deltas.windows(2).all(|w| w[0] >= w[1]));
     }
 
@@ -1264,10 +1311,10 @@ mod tests {
     fn structured_component_delta_without_baseline_returns_neutral_factor_bundle() {
         let current = components_json();
         let delta = structured_component_delta(&current, None);
-        assert_eq!(delta.get("runner_up_total_score").and_then(|v| v.as_i64()), Some(0));
-        assert_eq!(delta.get("score_gap").and_then(|v| v.as_i64()), Some(68));
-        let factors = delta.get("factors").and_then(|v| v.as_array()).expect("factors");
+        assert_eq!(delta.runner_up_total_score, 0);
+        assert_eq!(delta.score_gap, 68);
+        let factors = &delta.factors;
         assert_eq!(factors.len(), 5);
-        assert!(factors.iter().all(|item| item.get("direction").and_then(|v| v.as_str()) == Some("neutral")));
+        assert!(factors.iter().all(|item| matches!(item.direction, WinnerVsRunnerUpDirection::Neutral)));
     }
 }

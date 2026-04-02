@@ -61,6 +61,8 @@
 - [x] 给 `src/runner/engine.rs` 的 explainability 辅助逻辑补独立 unit tests
 - [x] 做一轮 explainability 主链剩余 loose JSON 普查与收口计划
 - [ ] 继续推进 trust score 核心化，减少分散排序项依赖
+- [ ] 为 explicit / sticky / no-match 增加结构化 explain 字段
+- [ ] 固化 eligibility gate vs ranking score 的正式边界
 - [ ] 继续收窄 trust cache / risk snapshot refresh 范围
 - [ ] 推进更真实的 verify 慢路径（匿名性 / 地区 / 出口真实性）
 - [x] 设计高并发下的性能优化与写放大控制策略

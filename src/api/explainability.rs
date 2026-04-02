@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use super::dto::{CandidateRankPreviewItem, SummaryArtifactResponse, TaskResponse, WinnerVsRunnerUpDiff};
+use super::dto::{CandidateRankPreviewItem, ProxySelectionExplain, SummaryArtifactResponse, TaskResponse, WinnerVsRunnerUpDiff};
 
 #[derive(Debug, Clone)]
 pub struct TaskExplainability {
@@ -11,6 +11,7 @@ pub struct TaskExplainability {
     pub proxy_resolution_status: Option<String>,
     pub trust_score_total: Option<i64>,
     pub selection_reason_summary: Option<String>,
+    pub selection_explain: Option<ProxySelectionExplain>,
     pub winner_vs_runner_up_diff: Option<WinnerVsRunnerUpDiff>,
     pub summary_artifacts: Vec<SummaryArtifactResponse>,
 }
@@ -97,6 +98,15 @@ pub fn selection_reason_summary(result_json: Option<&str>) -> Option<String> {
         .and_then(|value| value.get("selection_reason_summary"))
         .and_then(|value| value.as_str())
         .map(|value| value.to_string())
+}
+
+pub fn selection_explain(result_json: Option<&str>) -> Option<ProxySelectionExplain> {
+    let parsed = result_json.and_then(|raw| serde_json::from_str::<Value>(raw).ok())?;
+    parsed
+        .get("payload")
+        .and_then(|value| value.get("network_policy_json"))
+        .and_then(|value| value.get("selection_explain").cloned())
+        .and_then(|value| serde_json::from_value::<ProxySelectionExplain>(value).ok())
 }
 
 pub fn trust_score_total(result_json: Option<&str>) -> Option<i64> {
@@ -302,6 +312,7 @@ pub fn build_task_explainability(
     let (proxy_id, proxy_provider, proxy_region) = proxy_identity(result_json);
     let trust_score_total = trust_score_total(result_json);
     let selection_reason_summary = selection_reason_summary(result_json);
+    let selection_explain = selection_explain(result_json);
     let winner_vs_runner_up_diff = winner_vs_runner_up_diff(result_json);
     let summary_artifacts = enrich_summary_artifacts(
         summary_artifacts(result_json),
@@ -325,6 +336,7 @@ pub fn build_task_explainability(
         proxy_resolution_status,
         trust_score_total,
         selection_reason_summary,
+        selection_explain,
         winner_vs_runner_up_diff,
         summary_artifacts,
     }
@@ -508,6 +520,7 @@ mod tests {
                 proxy_resolution_status: None,
                 trust_score_total: None,
                 selection_reason_summary: None,
+                selection_explain: None,
                 winner_vs_runner_up_diff: None,
             },
             TaskResponse {
@@ -556,6 +569,7 @@ mod tests {
                 proxy_resolution_status: None,
                 trust_score_total: None,
                 selection_reason_summary: None,
+                selection_explain: None,
                 winner_vs_runner_up_diff: None,
             },
         ];

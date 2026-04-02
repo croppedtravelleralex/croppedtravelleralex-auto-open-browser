@@ -154,6 +154,16 @@ pub struct CandidateRankPreviewItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxySelectionExplain {
+    pub selection_mode: Option<String>,
+    pub explicit_override: Option<bool>,
+    pub sticky_reused: Option<bool>,
+    pub eligibility_gate: Option<String>,
+    pub fallback_reason: Option<String>,
+    pub no_match_reason_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SummaryArtifactResponse {
     pub category: String,
     pub key: String,
@@ -187,6 +197,7 @@ pub struct TaskResponse {
     pub proxy_resolution_status: Option<String>,
     pub trust_score_total: Option<i64>,
     pub selection_reason_summary: Option<String>,
+    pub selection_explain: Option<ProxySelectionExplain>,
     pub winner_vs_runner_up_diff: Option<WinnerVsRunnerUpDiff>,
 }
 

@@ -714,6 +714,7 @@ pub async fn status(
                 proxy_resolution_status: explainability.proxy_resolution_status,
                 trust_score_total: explainability.trust_score_total,
                 selection_reason_summary: explainability.selection_reason_summary,
+                selection_explain: explainability.selection_explain,
                 winner_vs_runner_up_diff: explainability.winner_vs_runner_up_diff,
                 summary_artifacts: explainability.summary_artifacts,
                 id,
@@ -1127,6 +1128,7 @@ pub async fn create_task(
             proxy_resolution_status: payload.network_policy_json.as_ref().and_then(|v| v.get("mode")).and_then(|v| v.as_str()).map(|mode| if mode == "direct" { "direct".to_string() } else { "pending".to_string() }),
             trust_score_total: None,
             selection_reason_summary: None,
+            selection_explain: None,
             winner_vs_runner_up_diff: None,
         }),
     ))
@@ -1172,6 +1174,7 @@ pub async fn get_task(
                 proxy_resolution_status: explainability.proxy_resolution_status,
                 trust_score_total: explainability.trust_score_total,
                 selection_reason_summary: explainability.selection_reason_summary,
+                selection_explain: explainability.selection_explain,
                 winner_vs_runner_up_diff: explainability.winner_vs_runner_up_diff,
                 summary_artifacts: explainability.summary_artifacts,
                 id,
