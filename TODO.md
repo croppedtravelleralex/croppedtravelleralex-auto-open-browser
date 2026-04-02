@@ -162,3 +162,8 @@
 - [ ] 真实浏览器执行结果与 proxy quality 信号如何更紧耦合
 - [ ] trust score 与未来 risk score / policy engine 的边界
 - [ ] Identity Profile 与 fingerprint profile 的职责切分
+
+- [x] 将 fingerprint-first 开发规则写入项目规则文档
+- [ ] 按规则实现指纹字段优先级分层
+- [ ] 按规则实现指纹-代理-地区一致性检查
+- [ ] 按规则实现指纹性能预算与并发预算

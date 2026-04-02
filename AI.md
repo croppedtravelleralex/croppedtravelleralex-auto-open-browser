@@ -44,6 +44,8 @@
 
 ## 2.1 当前阶段快照（Current Stage Snapshot）
 
+- **Development rule:** `docs/fingerprint-first-development-rules.md`（绝对指纹优先；性能优化不能退化成伪串行；screenshot / GUI / 重 artifact 当前冻结）
+
 - **Stage status:** stable / closed enough to freeze
 - **Completed in current stage:** providerScope lazy refresh validated; provider risk version / seen v1 landed; selection intentionally unchanged; explain-side version visibility landed and validated; providerRegion deferred for this stage
 - **Frozen in current stage:** providerRegion implementation; selection ranking redesign around version semantics; broad trust-score semantics rewrite; broad explainability rewrite
