@@ -92,3 +92,4 @@
 - **2026年04月02日 17时40分00秒** 实现了**perf probe 分支统计脚本与首批命中分布总结**功能，新增 `scripts/summarize_perf_probe.py`，并确认当前样本中范围刷新分支命中占比约 `57.1%`，其中 `provider_scope_flip` 是当前主导项。
 - **2026年04月02日 17时44分00秒** 实现了**真实任务流 perf probe 样本补充**功能，确认 `provider_scope_flip` 已在 verify_proxy / open_page 自动代理选择路径中真实发生，`provider_region_scope_flip` 已在 batch verify 真执行回写链中真实发生。
 - **2026年04月02日 20时35分00秒** 实现了**读侧 perf probe 与 explain 候选规模补样**功能，为 `/status` 与 `/proxies/:id/explain` 增加最小读取侧观测，并确认 explain 在 `candidate_count=1~3` 时仍处于低毫秒级，当前热点仍偏写侧范围刷新。
+- **2026年04月02日 20时40分00秒** 实现了**profiling 第二批补样与优化方向收敛**功能，再次确认 `provider_scope_flip` 在追加样本中持续主导，`provider_region_scope_flip` 主要出现在 batch verify 真执行回写链，并将下一步优化方向收敛到 provider 级 refresh 范围收窄方案设计。

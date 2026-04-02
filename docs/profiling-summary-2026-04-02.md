@@ -116,3 +116,25 @@
 - 当前候选规模从 1 提升到 3 时，`/proxies/:id/explain` 仍处于低毫秒级
 - 在当前测试规模下，读侧 explain 仍明显轻于写侧范围刷新
 - 现阶段还没有足够证据支持“优先优化 explain 读侧”
+
+
+## 补充样本（第二批）
+
+新增采样结果：
+- `verify_proxy_task_kind_executes_and_persists_result`
+  - `provider_scope_flip`
+  - `refresh_cached_trust_scores scope=provider elapsed_ms=6`
+- `status_latest_execution_summaries_include_selection_decision_artifact`
+  - `provider_scope_flip`
+  - `api_status elapsed_ms=4 latest_task_count=1 latest_summary_count=2`
+- `proxy_explain_endpoint_with_higher_candidate_count_still_returns_preview`
+  - `api_proxy_explain elapsed_ms=8 candidate_count=3`
+- `verify_batch_executes_verify_tasks_and_persists_proxy_results`
+  - `provider_scope_flip`
+  - `provider_region_scope_flip`
+
+### 补充判断
+- `provider_scope_flip` 在追加样本里继续命中，主导地位没有反转
+- `provider_region_scope_flip` 仍主要出现在 batch verify 真执行回写链
+- `/status` 与 `/proxies/:id/explain` 即使补到更贴近真实的样本，仍明显轻于写侧范围刷新
+- 当前没有足够证据支持优先优化读侧；下一步更值得进入 provider 级 refresh 范围收窄方案设计
