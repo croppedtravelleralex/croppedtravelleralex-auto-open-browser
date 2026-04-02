@@ -140,6 +140,8 @@ pub struct TrustScoreComponents {
     pub individual_history_penalty: i64,
     pub provider_risk_penalty: i64,
     pub provider_region_cluster_penalty: i64,
+    pub anonymity_bonus: i64,
+    pub latency_penalty: i64,
     pub soft_min_score_penalty: i64,
 }
 

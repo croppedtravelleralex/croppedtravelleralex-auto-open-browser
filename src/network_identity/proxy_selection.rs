@@ -19,6 +19,13 @@ pub struct ProxySelectionTuning {
     pub verify_failed_base_penalty: i64,
     pub missing_verify_penalty: i64,
     pub stale_verify_penalty: i64,
+    pub anonymity_elite_bonus: i64,
+    pub anonymity_anonymous_penalty: i64,
+    pub anonymity_transparent_penalty: i64,
+    pub low_latency_bonus: i64,
+    pub medium_latency_bonus: i64,
+    pub high_latency_penalty: i64,
+    pub very_high_latency_penalty: i64,
     pub soft_min_score_penalty: i64,
 }
 
@@ -40,6 +47,13 @@ impl Default for ProxySelectionTuning {
             verify_failed_base_penalty: 10,
             missing_verify_penalty: 12,
             stale_verify_penalty: 8,
+            anonymity_elite_bonus: 4,
+            anonymity_anonymous_penalty: 2,
+            anonymity_transparent_penalty: 6,
+            low_latency_bonus: 2,
+            medium_latency_bonus: 1,
+            high_latency_penalty: 2,
+            very_high_latency_penalty: 5,
             soft_min_score_penalty: 6,
         }
     }
@@ -189,6 +203,8 @@ mod tests {
         assert_eq!(tuning.verify_ok_bonus, 30);
         assert_eq!(tuning.missing_verify_penalty, 12);
         assert_eq!(tuning.soft_min_score_penalty, 6);
+        assert_eq!(tuning.anonymity_elite_bonus, 4);
+        assert_eq!(tuning.very_high_latency_penalty, 5);
         let env_tuning = proxy_selection_tuning_from_env();
         assert!(env_tuning.stale_after_seconds > 0);
         assert_eq!(rules.len(), 4);
@@ -456,6 +472,27 @@ pub fn proxy_selection_tuning_from_env() -> ProxySelectionTuning {
     }
     if let Ok(value) = std::env::var("AOB_PROXY_STALE_VERIFY_PENALTY") {
         if let Ok(parsed) = value.parse::<i64>() { tuning.stale_verify_penalty = parsed; }
+    }
+    if let Ok(value) = std::env::var("AOB_PROXY_ANONYMITY_ELITE_BONUS") {
+        if let Ok(parsed) = value.parse::<i64>() { tuning.anonymity_elite_bonus = parsed; }
+    }
+    if let Ok(value) = std::env::var("AOB_PROXY_ANONYMITY_ANONYMOUS_PENALTY") {
+        if let Ok(parsed) = value.parse::<i64>() { tuning.anonymity_anonymous_penalty = parsed; }
+    }
+    if let Ok(value) = std::env::var("AOB_PROXY_ANONYMITY_TRANSPARENT_PENALTY") {
+        if let Ok(parsed) = value.parse::<i64>() { tuning.anonymity_transparent_penalty = parsed; }
+    }
+    if let Ok(value) = std::env::var("AOB_PROXY_LOW_LATENCY_BONUS") {
+        if let Ok(parsed) = value.parse::<i64>() { tuning.low_latency_bonus = parsed; }
+    }
+    if let Ok(value) = std::env::var("AOB_PROXY_MEDIUM_LATENCY_BONUS") {
+        if let Ok(parsed) = value.parse::<i64>() { tuning.medium_latency_bonus = parsed; }
+    }
+    if let Ok(value) = std::env::var("AOB_PROXY_HIGH_LATENCY_PENALTY") {
+        if let Ok(parsed) = value.parse::<i64>() { tuning.high_latency_penalty = parsed; }
+    }
+    if let Ok(value) = std::env::var("AOB_PROXY_VERY_HIGH_LATENCY_PENALTY") {
+        if let Ok(parsed) = value.parse::<i64>() { tuning.very_high_latency_penalty = parsed; }
     }
     tuning
 }

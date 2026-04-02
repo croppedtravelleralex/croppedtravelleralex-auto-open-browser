@@ -971,16 +971,16 @@ pub async fn explain_proxy_selection(
     Path(proxy_id): Path<String>,
 ) -> Result<Json<ProxySelectionExplainResponse>, (StatusCode, String)> {
     let now = now_ts_string();
-    let row = sqlx::query_as::<_, (String, Option<String>, Option<String>, f64, i64, i64, Option<String>, Option<i64>, Option<i64>, Option<String>)>(
+    let row = sqlx::query_as::<_, (String, Option<String>, Option<String>, f64, i64, i64, Option<String>, Option<i64>, Option<i64>, Option<String>, Option<String>, Option<i64>)>(
         &format!(
-            "SELECT id, provider, region, score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at FROM proxies WHERE id = ?"
+            "SELECT id, provider, region, score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at, last_anonymity_level, last_probe_latency_ms FROM proxies WHERE id = ?"
         )
     )
     .bind(&proxy_id)
     .fetch_optional(&state.db)
     .await
     .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to load proxy explain row: {err}")))?;
-    let Some((id, _provider, _region, score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at)) = row else {
+    let Some((id, _provider, _region, score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at, last_anonymity_level, last_probe_latency_ms)) = row else {
         return Err((StatusCode::NOT_FOUND, format!("proxy not found: {proxy_id}")));
     };
 
@@ -1003,7 +1003,9 @@ pub async fn explain_proxy_selection(
         last_verify_status.as_deref(),
         last_verify_geo_match_ok.unwrap_or(0) != 0,
         last_smoke_upstream_ok.unwrap_or(0) != 0,
-        last_verify_at.and_then(|v| v.parse::<i64>().ok()),
+        last_verify_at.as_ref().and_then(|v: &String| v.parse::<i64>().ok()),
+        last_anonymity_level.as_deref(),
+        last_probe_latency_ms,
         provider_risk_hit != 0,
         provider_region_cluster_hit != 0,
         now_ts,

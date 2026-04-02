@@ -135,6 +135,8 @@ pub fn computed_trust_score_components(
     last_verify_geo_match_ok: bool,
     last_smoke_upstream_ok: bool,
     last_verify_at: Option<i64>,
+    last_anonymity_level: Option<&str>,
+    last_probe_latency_ms: Option<i64>,
     provider_risk_hit: bool,
     provider_region_cluster_hit: bool,
     now_ts: i64,
@@ -152,6 +154,19 @@ pub fn computed_trust_score_components(
     let individual_history_penalty = if failure_count >= success_count + 3 { 2 } else if failure_count > success_count { 1 } else { 0 };
     let provider_risk_penalty = if provider_risk_hit { tuning.provider_failure_margin } else { 0 };
     let provider_region_cluster_penalty = if provider_region_cluster_hit { tuning.provider_region_failure_cluster_count } else { 0 };
+    let anonymity_bonus = match last_anonymity_level {
+        Some("elite") => tuning.anonymity_elite_bonus,
+        Some("anonymous") => -tuning.anonymity_anonymous_penalty,
+        Some("transparent") => -tuning.anonymity_transparent_penalty,
+        _ => 0,
+    };
+    let latency_penalty = match last_probe_latency_ms {
+        Some(v) if v <= 800 => -tuning.low_latency_bonus,
+        Some(v) if v <= 2000 => -tuning.medium_latency_bonus,
+        Some(v) if v >= 8000 => tuning.very_high_latency_penalty,
+        Some(v) if v >= 4000 => tuning.high_latency_penalty,
+        _ => 0,
+    };
     let soft_min_score_penalty = if let Some(threshold) = soft_min_score {
         if score < threshold { tuning.soft_min_score_penalty } else { 0 }
     } else {
@@ -171,6 +186,8 @@ pub fn computed_trust_score_components(
         individual_history_penalty,
         provider_risk_penalty,
         provider_region_cluster_penalty,
+        anonymity_bonus,
+        latency_penalty,
         soft_min_score_penalty,
     }
 }
@@ -189,12 +206,14 @@ fn component_value(components: &TrustScoreComponents, key: &str) -> i64 {
         "individual_history_penalty" => components.individual_history_penalty,
         "provider_risk_penalty" => components.provider_risk_penalty,
         "provider_region_cluster_penalty" => components.provider_region_cluster_penalty,
+        "anonymity_bonus" => components.anonymity_bonus,
+        "latency_penalty" => components.latency_penalty,
         "soft_min_score_penalty" => components.soft_min_score_penalty,
         _ => 0,
     }
 }
 
-fn component_keys() -> [&'static str; 12] {
+fn component_keys() -> [&'static str; 14] {
     [
         "verify_ok_bonus",
         "verify_geo_match_bonus",
@@ -208,15 +227,18 @@ fn component_keys() -> [&'static str; 12] {
         "individual_history_penalty",
         "provider_risk_penalty",
         "provider_region_cluster_penalty",
+        "anonymity_bonus",
+        "latency_penalty",
     ]
 }
 
-fn positive_component_keys() -> [&'static str; 4] {
+fn positive_component_keys() -> [&'static str; 5] {
     [
         "verify_ok_bonus",
         "verify_geo_match_bonus",
         "smoke_upstream_ok_bonus",
         "raw_score_component",
+        "anonymity_bonus",
     ]
 }
 
@@ -234,6 +256,8 @@ fn empty_components() -> TrustScoreComponents {
         individual_history_penalty: 0,
         provider_risk_penalty: 0,
         provider_region_cluster_penalty: 0,
+        anonymity_bonus: 0,
+        latency_penalty: 0,
         soft_min_score_penalty: 0,
     }
 }
@@ -489,13 +513,13 @@ async fn compute_proxy_selection_explain(
 ) -> Result<(Option<i64>, TrustScoreComponents)> {
     let provider_risk_query = "SELECT EXISTS(SELECT 1 FROM provider_risk_snapshots s JOIN proxies p ON p.provider = s.provider WHERE p.id = ? AND s.risk_hit != 0)";
     let provider_region_query = "SELECT EXISTS(SELECT 1 FROM provider_region_risk_snapshots s JOIN proxies p ON p.provider = s.provider AND p.region = s.region WHERE p.id = ? AND s.risk_hit != 0)";
-    let row = sqlx::query_as::<_, (f64, i64, i64, Option<String>, Option<i64>, Option<i64>, Option<i64>)>(
-        r#"SELECT score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, CAST(last_verify_at AS INTEGER) FROM proxies WHERE id = ?"#
+    let row = sqlx::query_as::<_, (f64, i64, i64, Option<String>, Option<i64>, Option<i64>, Option<i64>, Option<String>, Option<i64>)>(
+        r#"SELECT score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, CAST(last_verify_at AS INTEGER), last_anonymity_level, last_probe_latency_ms FROM proxies WHERE id = ?"#
     )
     .bind(proxy_id)
     .fetch_optional(&state.db)
     .await?;
-    let Some((score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at)) = row else {
+    let Some((score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at, last_anonymity_level, last_probe_latency_ms)) = row else {
         return Ok((None, empty_components()));
     };
     let provider_risk_hit: i64 = sqlx::query_scalar(provider_risk_query).bind(proxy_id).fetch_one(&state.db).await?;
@@ -510,6 +534,8 @@ async fn compute_proxy_selection_explain(
         last_verify_geo_match_ok.unwrap_or(0) != 0,
         last_smoke_upstream_ok.unwrap_or(0) != 0,
         last_verify_at,
+        last_anonymity_level.as_deref(),
+        last_probe_latency_ms,
         provider_risk_hit != 0,
         provider_region_cluster_hit != 0,
         now.parse::<i64>().unwrap_or_default(),
@@ -1311,6 +1337,8 @@ mod tests {
             individual_history_penalty: 0,
             provider_risk_penalty: 0,
             provider_region_cluster_penalty: 0,
+            anonymity_bonus: 0,
+            latency_penalty: 0,
             soft_min_score_penalty: 0,
         }
     }
@@ -1329,6 +1357,8 @@ mod tests {
             individual_history_penalty: 2,
             provider_risk_penalty: 5,
             provider_region_cluster_penalty: 2,
+            anonymity_bonus: 0,
+            latency_penalty: 0,
             soft_min_score_penalty: 0,
         }
     }
@@ -1345,6 +1375,8 @@ mod tests {
             true,
             true,
             Some(9999999999),
+            Some("elite"),
+            Some(650),
             true,
             true,
             1000,
@@ -1356,6 +1388,8 @@ mod tests {
         assert_eq!(components.raw_score_component, 8);
         assert_eq!(components.provider_risk_penalty, 5);
         assert_eq!(components.provider_region_cluster_penalty, 2);
+        assert_eq!(components.anonymity_bonus, 4);
+        assert_eq!(components.latency_penalty, -2);
         assert_eq!(components.missing_verify_penalty, 0);
     }
 
