@@ -116,7 +116,7 @@
 
 - **找 bug：** 本轮没有新增业务逻辑 bug；profiling 样本反而确认了两个真实热点事实：`provider_scope_flip` 已在 verify/open_page/batch verify 真执行链中真实命中，且范围刷新分支在当前样本中占比约 `57.1%`。
 - **性能评分：** 当前阶段 **9.4/10**。优点是 trust score / explainability 主链已经开始真正消费 verify 慢路径信号，profiling 最小观测埋点已经落地且已有第一批真实样本；扣分点主要转移到读取侧观测尚未补齐。
-- **改进建议：** 下一步最值得做的是 **做一轮 explain 接口可读性验证，再决定 explain version 状态是否需要进入更明显的人类可读摘要；selection 继续不动，providerRegion 继续延后**。
+- **改进建议：** 下一步最值得做的是 **保持 explain version 状态为结构化字段，暂不强行推入主摘要句；selection 继续不动，providerRegion 继续延后**。
 
 ## Autopilot Sync
 

@@ -102,3 +102,4 @@
 - **2026年04月02日 22时40分00秒** 完成了**explain 可见性字段方案设计**，明确若后续需要新增 version 语义消费者，优先从 `/proxies/:id/explain` 暴露 `provider_risk_version_current / seen / status` 这类字段切入，而不先改 selection 排序语义。
 - **2026年04月02日 22时43分00秒** 实现了**explain 可见性字段第一版接线**，为 `/proxies/:id/explain` 增加 `provider_risk_version_current / provider_risk_version_seen / provider_risk_version_status` 字段，并补齐对应回归测试。
 - **2026年04月02日 22时48分00秒** 完成了**explain 可见性字段最小文案与使用边界收口**，明确 `aligned / stale / not_applicable` 的 API 含义，并约束这些 version 状态暂不强行进入主摘要句，先保留为结构化字段。
+- **2026年04月02日 22时49分00秒** 完成了**explain 接口可读性验证**，确认 `provider_risk_version_current / seen / status` 这组字段作为结构化可见性已经足够可读，当前阶段无需强行进入主摘要句。
