@@ -103,6 +103,8 @@ fn result_payload(
     ok: bool,
     status: &str,
     error_kind: Option<&str>,
+    failure_scope: Option<&str>,
+    browser_failure_signal: Option<&str>,
     task: &RunnerTask,
     url: Option<&str>,
     timeout_seconds: Option<u64>,
@@ -145,6 +147,8 @@ fn result_payload(
         "ok": ok,
         "status": status,
         "error_kind": error_kind,
+        "failure_scope": failure_scope,
+        "browser_failure_signal": browser_failure_signal,
         "task_id": task.task_id,
         "attempt": task.attempt,
         "kind": task.kind,
@@ -179,6 +183,12 @@ fn build_result(
 ) -> RunnerExecutionResult {
     let message = message.into();
     let is_error = matches!(outcome, RunnerOutcomeStatus::Failed | RunnerOutcomeStatus::TimedOut);
+    let browser_failure_signal = detect_browser_failure_signal(stderr_preview.as_deref(), stdout_preview.as_deref());
+    let failure_scope = is_error.then_some(runner_failure_scope(
+        error_kind,
+        browser_failure_signal,
+        matches!(outcome, RunnerOutcomeStatus::TimedOut),
+    ));
 
     RunnerExecutionResult {
         status: outcome,
@@ -186,6 +196,8 @@ fn build_result(
             ok,
             status,
             error_kind,
+            failure_scope,
+            browser_failure_signal,
             task,
             url,
             timeout_seconds,
@@ -203,7 +215,12 @@ fn build_result(
             source: "runner.lightpanda".to_string(),
             severity: if is_error { crate::runner::types::SummaryArtifactSeverity::Error } else { crate::runner::types::SummaryArtifactSeverity::Info },
             title: execution_summary_title(status, error_kind),
-            summary: execution_summary_text(task, status, error_kind, exit_code, timeout_seconds, &message),
+            summary: format!(
+                "{} failure_scope={} browser_failure_signal={}",
+                execution_summary_text(task, status, error_kind, exit_code, timeout_seconds, &message),
+                failure_scope.unwrap_or("none"),
+                browser_failure_signal.unwrap_or("none"),
+            ),
         }],
     }
 }
@@ -299,6 +316,40 @@ fn execution_summary_text(task: &RunnerTask, status: &str, error_kind: Option<&s
         timeout_seconds,
         message,
     )
+}
+
+fn detect_browser_failure_signal(stderr_preview: Option<&str>, stdout_preview: Option<&str>) -> Option<&'static str> {
+    let stderr = stderr_preview.unwrap_or("").to_ascii_lowercase();
+    let stdout = stdout_preview.unwrap_or("").to_ascii_lowercase();
+    let combined = format!("{}
+{}", stderr, stdout);
+
+    if combined.contains("timeout") || combined.contains("timed out") {
+        Some("browser_timeout_signal")
+    } else if combined.contains("navigation") && combined.contains("fail") {
+        Some("browser_navigation_failure_signal")
+    } else if combined.contains("dns") || combined.contains("name not resolved") {
+        Some("browser_dns_failure_signal")
+    } else if combined.contains("certificate") || combined.contains("tls") || combined.contains("ssl") {
+        Some("browser_tls_failure_signal")
+    } else {
+        None
+    }
+}
+
+fn runner_failure_scope(error_kind: Option<&str>, browser_failure_signal: Option<&str>, timed_out: bool) -> &'static str {
+    if timed_out {
+        "runner_timeout"
+    } else if browser_failure_signal.is_some() {
+        "browser_execution"
+    } else {
+        match error_kind {
+            Some("binary_not_found") | Some("spawn_permission_denied") | Some("spawn_failed") => "runner_invocation",
+            Some("process_wait_failed") => "runner_process_wait",
+            Some("runner_command_not_found") | Some("runner_invocation_not_executable") | Some("runner_terminated_by_signal") | Some("runner_non_zero_exit") => "runner_process_exit",
+            _ => "runner_execution",
+        }
+    }
 }
 
 async fn terminate_pid(pid: u32) -> Result<(), String> {
@@ -785,6 +836,22 @@ exit 7",
         let json = result.result_json.expect("result json");
         assert_eq!(json.get("error_kind").and_then(|v| v.as_str()), Some("runner_command_not_found"));
         assert_eq!(json.get("exit_code").and_then(|v| v.as_i64()), Some(127));
+    }
+
+    #[tokio::test]
+    async fn execute_detects_browser_failure_signal_from_stderr() {
+        let script = write_script(
+            "browser-nav-fail",
+            "echo navigation failed >&2
+exit 9",
+        );
+        let result = execute_with_bin(script.to_str().unwrap(), json!({"url": "https://example.com"}), Some(5)).await;
+        let _ = fs::remove_file(script);
+
+        assert!(matches!(result.status, RunnerOutcomeStatus::Failed));
+        let json = result.result_json.expect("result json");
+        assert_eq!(json.get("browser_failure_signal").and_then(|v| v.as_str()), Some("browser_navigation_failure_signal"));
+        assert_eq!(json.get("failure_scope").and_then(|v| v.as_str()), Some("browser_execution"));
     }
 
     #[tokio::test]
