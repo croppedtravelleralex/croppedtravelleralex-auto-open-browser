@@ -102,7 +102,7 @@
 ### P0
 1. **继续推进 selection → trust score 核心化**，把剩余分散在 selection 中的控制流语义继续收进统一 score / explain 边界。
 2. **继续扩大真实任务流样本，验证 `provider_scope_flip / provider_region_scope_flip / proxy_only_no_flip` 的命中比例是否稳定。**
-3. **推进 provider 级 refresh 范围收窄稳定化**，当前已完成 providerRegion 三轮进入条件验证；selection 继续不动，providerRegion 继续延后，现阶段判断已收口：本阶段不进入 providerRegion 实现。
+3. **推进 provider 级 refresh 范围收窄稳定化**，当前阶段已正式收口：providerScope 已验证，selection 继续不动，explain 可见性已落地，providerRegion 本阶段不进入实现；下一主线转向控制面与可见性质量收口。
 4. **继续清 explainability 主链里剩余 typed/JSON 边界与 summary 文案质量。**
 5. **推进更真实的 verify 慢路径**，继续补匿名性 / 地区 / 出口真实性以外的可稳定质量信号。
 
@@ -116,7 +116,7 @@
 
 - **找 bug：** 本轮没有新增业务逻辑 bug；profiling 样本反而确认了两个真实热点事实：`provider_scope_flip` 已在 verify/open_page/batch verify 真执行链中真实命中，且范围刷新分支在当前样本中占比约 `57.1%`。
 - **性能评分：** 当前阶段 **9.4/10**。优点是 trust score / explainability 主链已经开始真正消费 verify 慢路径信号，profiling 最小观测埋点已经落地且已有第一批真实样本；扣分点主要转移到读取侧观测尚未补齐。
-- **改进建议：** 下一步最值得做的是 **正式结束 providerRegion 本阶段验证并转入新的主线，而不是继续在当前判断上反复加样本；selection 继续不动**。
+- **改进建议：** 下一步最值得做的是 **结束 refresh-scope 这条主线的继续扩张，转向控制面与可见性质量收口；selection 继续不动，providerRegion 继续冻结**。
 
 ## Autopilot Sync
 
