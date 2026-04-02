@@ -134,11 +134,7 @@ fn result_payload(
         "resolution_status": proxy.resolution_status,
     }));
 
-    let html_preview = if action == "get_html" {
-        stdout_preview.clone()
-    } else {
-        None
-    };
+    let (html_preview, html_length, html_truncated) = html_preview_metadata(stdout_preview.as_deref(), action);
 
     let fingerprint_runtime_json = fingerprint_runtime.map(|runtime| {
         let supported_field_count = runtime.applied_fields.iter().filter(|f| *f != "profile_id" && *f != "profile_version").count();
@@ -190,6 +186,8 @@ fn result_payload(
         "stdout_preview": stdout_preview,
         "stderr_preview": stderr_preview,
         "html_preview": html_preview,
+        "html_length": html_length,
+        "html_truncated": html_truncated,
         "content_kind": (action == "get_html").then_some("text/html"),
         "message": message,
     })
@@ -220,6 +218,7 @@ fn build_result(
         browser_failure_signal,
         matches!(outcome, RunnerOutcomeStatus::TimedOut),
     ));
+    let (_, html_length, _) = html_preview_metadata(stdout_preview.as_deref(), action);
 
     RunnerExecutionResult {
         status: outcome,
@@ -249,10 +248,14 @@ fn build_result(
             severity: if is_error { crate::runner::types::SummaryArtifactSeverity::Error } else { crate::runner::types::SummaryArtifactSeverity::Info },
             title: execution_summary_title(action, status, error_kind),
             summary: format!(
-                "{} failure_scope={} browser_failure_signal={}",
+                "{} failure_scope={} browser_failure_signal={} content_kind={} html_length={}",
                 execution_summary_text(action, task, status, error_kind, exit_code, timeout_seconds, &message),
                 failure_scope.unwrap_or("none"),
                 browser_failure_signal.unwrap_or("none"),
+                if action == "get_html" { "text/html" } else { "none" },
+                html_length
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "none".to_string()),
             ),
         }],
     }
@@ -333,6 +336,20 @@ fn truncate_output(s: &str, max_chars: usize) -> String {
 fn preview_if_non_empty(raw: String, max_chars: usize) -> Option<String> {
     let preview = truncate_output(&raw, max_chars);
     (!preview.is_empty()).then_some(preview)
+}
+
+fn html_preview_metadata(stdout_preview: Option<&str>, action: &str) -> (Option<String>, Option<usize>, Option<bool>) {
+    if action != "get_html" {
+        return (None, None, None);
+    }
+
+    let Some(preview) = stdout_preview else {
+        return (None, Some(0), Some(false));
+    };
+
+    let html_length = preview.chars().count();
+    let html_truncated = preview.contains("...[truncated]");
+    (Some(preview.to_string()), Some(html_length), Some(html_truncated))
 }
 
 fn classify_spawn_error(err: &io::Error) -> &'static str {
@@ -908,6 +925,19 @@ exit 0",
     }
 
     #[test]
+    fn html_preview_metadata_marks_truncated_html() {
+        let (preview, html_length, html_truncated) = html_preview_metadata(Some("<html>abc...[truncated]"), "get_html");
+        assert_eq!(preview.as_deref(), Some("<html>abc...[truncated]"));
+        assert_eq!(html_length, Some(23));
+        assert_eq!(html_truncated, Some(true));
+
+        let (preview_none, len_none, trunc_none) = html_preview_metadata(None, "get_html");
+        assert_eq!(preview_none, None);
+        assert_eq!(len_none, Some(0));
+        assert_eq!(trunc_none, Some(false));
+    }
+
+    #[test]
     fn extract_action_defaults_to_open_page_and_accepts_explicit_action() {
         assert_eq!(extract_action(&json!({"url": "https://example.com"})), "open_page");
         assert_eq!(extract_action(&json!({"url": "https://example.com", "action": "fetch"})), "fetch");
@@ -957,6 +987,8 @@ exit 0",
         assert_eq!(json.get("action").and_then(|v| v.as_str()), Some("get_html"));
         assert_eq!(json.get("content_kind").and_then(|v| v.as_str()), Some("text/html"));
         assert_eq!(json.get("html_preview").and_then(|v| v.as_str()), Some("<html><body>ok</body></html>"));
+        assert_eq!(json.get("html_length").and_then(|v| v.as_u64()), Some(28));
+        assert_eq!(json.get("html_truncated").and_then(|v| v.as_bool()), Some(false));
     }
 
     #[tokio::test]
