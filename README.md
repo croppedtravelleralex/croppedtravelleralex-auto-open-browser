@@ -1,5 +1,6 @@
 ## Current Stage Snapshot
 Project development rule: see `docs/fingerprint-first-development-rules.md` for the current fingerprint-first priority policy under the headless Ubuntu runtime.
+The same rule document also records the updated tradeoffs after planned disk expansion and the requirement that performance optimization must not collapse usable concurrency.
 
 `python3 scripts/check_stage_entry_consistency.py` validates that README / STATUS / TODO / PROGRESS still agree on the current stage control surface.
 Usage flow: see `docs/stage-entry-consistency-script-usage.md`.

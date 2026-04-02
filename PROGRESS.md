@@ -135,3 +135,4 @@
 - **2026年04月03日 00时43分00秒** 实现了**Lightpanda `get_html` bounded v1**，将 `get_html` 纳入支持动作列表，复用当前 fetch-style 执行路径，并在结果中增加 `html_preview` 与 `content_kind=text/html`，补齐对应回归测试。
 - **2026年04月03日 01时04分00秒** 实现了**高级代理体系第一轮最小闭环**，新增 `src/network_identity/proxy_growth.rs`，提供代理池健康比例评估、地区匹配评估与 replenish trigger 判断，并补齐高并发最低库存、地区缺口与健康比例边界测试。
 - **2026年04月03日 01时52分00秒** 完成了**fingerprint-first development rules** 文档固化，正式将“绝对指纹优先、性能优化不能退化成伪串行、截图/GUI/重 artifact 当前冻结”写入项目规则，作为后续开发取舍依据。
+- **2026年04月03日 02时06分00秒** 更新了**fingerprint-first development rules**，将 headless Ubuntu 运行约束、磁盘扩容后的功能取舍、结构化结果优先、以及“性能优化不能退化成伪串行”的并发规则一并写入项目规则文档。

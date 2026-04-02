@@ -44,7 +44,7 @@
 
 ## 2.1 当前阶段快照（Current Stage Snapshot）
 
-- **Development rule:** `docs/fingerprint-first-development-rules.md`（绝对指纹优先；性能优化不能退化成伪串行；screenshot / GUI / 重 artifact 当前冻结）
+- **Development rule:** `docs/fingerprint-first-development-rules.md`（绝对指纹优先；headless Ubuntu 优先；磁盘扩容不改变主线排序；性能优化不能退化成伪串行；screenshot / GUI / 重视觉能力当前降级）
 
 - **Stage status:** stable / closed enough to freeze
 - **Completed in current stage:** providerScope lazy refresh validated; provider risk version / seen v1 landed; selection intentionally unchanged; explain-side version visibility landed and validated; providerRegion deferred for this stage

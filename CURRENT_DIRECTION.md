@@ -48,3 +48,6 @@
 当前阶段不是“继续无差别加功能”，而是：
 
 > **围绕 trust score + verify 闭环，做一次系统收敛，让 selection 逻辑、质量信号、运行状态、调优入口开始真正统一。**
+
+
+补充方向：允许未来增强 HTML/debug/trace retention，但不因此提升 screenshot / GUI / 重视觉能力的优先级；更大磁盘不改变 fingerprint-first 主线。
