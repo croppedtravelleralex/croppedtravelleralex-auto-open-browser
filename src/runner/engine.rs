@@ -110,6 +110,7 @@ fn selection_explain_json(
     would_rank_position_if_auto: Option<i64>,
     soft_min_score: Option<f64>,
     soft_min_score_penalty_applied: Option<bool>,
+    proxy_growth: Option<Value>,
 ) -> Value {
     let eligibility_gate = "active+cooldown+provider/region+min_score";
     json!({
@@ -124,6 +125,7 @@ fn selection_explain_json(
         "soft_min_score_penalty_applied": soft_min_score_penalty_applied,
         "fallback_reason": fallback_reason,
         "no_match_reason_code": no_match_reason_code,
+        "proxy_growth": proxy_growth,
     })
 }
 
@@ -623,6 +625,8 @@ async fn auto_rank_position_for_proxy(
 // - ranking score: trust_score_total + trust_score_components ordering within eligible candidates
 // explicit and sticky are currently control-flow overrides around the ranking path, not score components.
 async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) -> Result<()> {
+    let payload_snapshot = payload.clone();
+    let selected_proxy_snapshot = extract_proxy_selection(&payload_snapshot);
     let Some(policy) = payload.get_mut("network_policy_json") else { return Ok(()); };
     let Some(policy_obj) = policy.as_object_mut() else { return Ok(()); };
     let mode = policy_obj.get("mode").and_then(|v| v.as_str()).unwrap_or("direct").to_string();
@@ -764,8 +768,9 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
             .as_ref()
             .and_then(|items| items.first())
             .map(|item| item.summary.as_str());
+        let proxy_growth_for_selection = build_proxy_growth_explain_json(state, &payload_snapshot, selected_proxy_snapshot.as_ref()).await.ok();
         policy_obj.insert("selection_reason_summary".to_string(), json!(selection_reason_summary_for_mode(selection_mode, trust_score_total, candidate_summary)));
-        policy_obj.insert("selection_explain".to_string(), selection_explain_json(selection_mode, fallback_reason, None, sticky_binding_age_seconds, sticky_reuse_reason, would_rank_position_if_auto, soft_min_score, soft_min_score_penalty_applied));
+        policy_obj.insert("selection_explain".to_string(), selection_explain_json(selection_mode, fallback_reason, None, sticky_binding_age_seconds, sticky_reuse_reason, would_rank_position_if_auto, soft_min_score, soft_min_score_penalty_applied, proxy_growth_for_selection));
         policy_obj.insert("trust_score_components".to_string(), json!(trust_score_components));
         if let Some(preview) = preview {
             policy_obj.insert("candidate_rank_preview".to_string(), json!(preview));
@@ -793,7 +798,8 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
             Some("no_eligible_active_proxy")
         };
         policy_obj.insert("selection_reason_summary".to_string(), json!("no eligible active proxy matched the current policy filters"));
-        policy_obj.insert("selection_explain".to_string(), selection_explain_json(selection_mode, fallback_reason, no_match_reason_code, None, None, None, soft_min_score, None));
+        let proxy_growth_for_selection = build_proxy_growth_explain_json(state, &payload_snapshot, None).await.ok();
+        policy_obj.insert("selection_explain".to_string(), selection_explain_json(selection_mode, fallback_reason, no_match_reason_code, None, None, None, soft_min_score, None, proxy_growth_for_selection));
     }
     Ok(())
 }
