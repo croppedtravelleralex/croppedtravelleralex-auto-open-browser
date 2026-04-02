@@ -104,12 +104,18 @@ fn selection_explain_json(
     selection_mode: &str,
     fallback_reason: Option<&str>,
     no_match_reason_code: Option<&str>,
+    sticky_binding_age_seconds: Option<i64>,
+    sticky_reuse_reason: Option<&str>,
+    would_rank_position_if_auto: Option<i64>,
 ) -> Value {
     let eligibility_gate = "active+cooldown+provider/region+min_score";
     json!({
         "selection_mode": selection_mode,
         "explicit_override": selection_mode == "explicit",
         "sticky_reused": selection_mode == "sticky",
+        "sticky_binding_age_seconds": sticky_binding_age_seconds,
+        "sticky_reuse_reason": sticky_reuse_reason,
+        "would_rank_position_if_auto": would_rank_position_if_auto,
         "eligibility_gate": eligibility_gate,
         "fallback_reason": fallback_reason,
         "no_match_reason_code": no_match_reason_code,
@@ -495,6 +501,31 @@ async fn compute_proxy_selection_explain(
     Ok((trust_score_total, components))
 }
 
+async fn auto_rank_position_for_proxy(
+    state: &AppState,
+    now: &str,
+    proxy_id: &str,
+    provider: Option<&str>,
+    region: Option<&str>,
+    min_score: f64,
+) -> Result<Option<i64>> {
+    let query = format!(
+        "SELECT id FROM proxies {} ORDER BY {} LIMIT 50",
+        proxy_selection_base_where_sql(),
+        proxy_selection_order_by_cached_trust_score_sql()
+    );
+    let ids = sqlx::query_scalar::<_, String>(&query)
+        .bind(now)
+        .bind(provider)
+        .bind(provider)
+        .bind(region)
+        .bind(region)
+        .bind(min_score)
+        .fetch_all(&state.db)
+        .await?;
+    Ok(ids.into_iter().position(|id| id == proxy_id).map(|idx| idx as i64 + 1))
+}
+
 // Selection boundary note:
 // - eligibility gate: active / cooldown / provider-region filter / min_score
 // - ranking score: trust_score_total + trust_score_components ordering within eligible candidates
@@ -517,6 +548,7 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
 
     let mut selection_mode = "auto";
     let mut fallback_reason: Option<&str> = None;
+    let mut sticky_binding_created_at: Option<String> = None;
     let mut row = if let Some(proxy_id) = policy_obj.get("proxy_id").and_then(|v| v.as_str()) {
         selection_mode = "explicit";
         sqlx::query_as::<_, (String, String, String, i64, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, f64)>(
@@ -533,8 +565,8 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
         .await?
     } else if let Some(ref sticky_session) = sticky_session {
         selection_mode = "sticky";
-        sqlx::query_as::<_, (String, String, String, i64, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, f64)>(
-            r#"SELECT p.id, p.scheme, p.host, p.port, p.username, p.password, p.region, p.country, p.provider, p.score
+        sqlx::query_as::<_, (String, String, String, i64, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, f64, String)>(
+            r#"SELECT p.id, p.scheme, p.host, p.port, p.username, p.password, p.region, p.country, p.provider, p.score, b.created_at
                FROM proxy_session_bindings b
                JOIN proxies p ON p.id = b.proxy_id
                WHERE b.session_key = ?
@@ -556,6 +588,10 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
         .bind(min_score)
         .fetch_optional(&state.db)
         .await?
+        .map(|(id, scheme, host, port, username, password, region, country, provider, score, created_at)| {
+            sticky_binding_created_at = Some(created_at);
+            (id, scheme, host, port, username, password, region, country, provider, score)
+        })
     } else {
         None
     };
@@ -594,6 +630,9 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
         let (trust_score_total, trust_score_components) = compute_proxy_selection_explain(state, &id, &now).await?;
         let preview_provider = provider.clone();
         let preview_region = region.clone();
+        let rank_proxy_id = id.clone();
+        let rank_provider = provider.clone();
+        let rank_region = region.clone();
         let mut resolved = resolved_proxy_json(id, scheme, host, port, username, password, region, country, provider, score);
         if let Some(obj) = resolved.as_object_mut() {
             obj.insert("trust_score_total".to_string(), trust_score_total.map_or(Value::Null, |v| json!(v)));
@@ -605,12 +644,34 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
         } else {
             None
         };
+        let would_rank_position_if_auto = if selection_mode == "explicit" || selection_mode == "sticky" {
+            auto_rank_position_for_proxy(state, &now, &rank_proxy_id, rank_provider.as_deref(), rank_region.as_deref(), min_score).await?
+        } else {
+            None
+        };
+        let sticky_binding_age_seconds = if selection_mode == "sticky" {
+            match sticky_binding_created_at.as_deref() {
+                Some(created_at) => {
+                    let now_i = now.parse::<i64>().unwrap_or(0);
+                    let created_i = created_at.parse::<i64>().unwrap_or(now_i);
+                    Some(now_i.saturating_sub(created_i))
+                }
+                None => sticky_session.as_deref().map(|_| 0),
+            }
+        } else {
+            None
+        };
+        let sticky_reuse_reason = if selection_mode == "sticky" {
+            Some("sticky_binding_matched_and_candidate_still_eligible")
+        } else {
+            None
+        };
         let candidate_summary = preview
             .as_ref()
             .and_then(|items| items.first())
             .map(|item| item.summary.as_str());
         policy_obj.insert("selection_reason_summary".to_string(), json!(selection_reason_summary_for_mode(selection_mode, trust_score_total, candidate_summary)));
-        policy_obj.insert("selection_explain".to_string(), selection_explain_json(selection_mode, fallback_reason, None));
+        policy_obj.insert("selection_explain".to_string(), selection_explain_json(selection_mode, fallback_reason, None, sticky_binding_age_seconds, sticky_reuse_reason, would_rank_position_if_auto));
         policy_obj.insert("trust_score_components".to_string(), json!(trust_score_components));
         if let Some(preview) = preview {
             policy_obj.insert("candidate_rank_preview".to_string(), json!(preview));
@@ -638,7 +699,7 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
             Some("no_eligible_active_proxy")
         };
         policy_obj.insert("selection_reason_summary".to_string(), json!("no eligible active proxy matched the current policy filters"));
-        policy_obj.insert("selection_explain".to_string(), selection_explain_json(selection_mode, fallback_reason, no_match_reason_code));
+        policy_obj.insert("selection_explain".to_string(), selection_explain_json(selection_mode, fallback_reason, no_match_reason_code, None, None, None));
     }
     Ok(())
 }
