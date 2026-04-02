@@ -8,6 +8,28 @@ use super::schema::ALL_SCHEMA_SQL;
 
 pub type DbPool = Pool<Sqlite>;
 
+fn perf_probe_enabled() -> bool {
+    std::env::var("AOB_PERF_PROBE")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "on" | "ON"))
+        .unwrap_or(false)
+}
+
+fn perf_probe_log(event: &str, fields: &[(&str, String)]) {
+    if !perf_probe_enabled() {
+        return;
+    }
+    let detail = fields
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join(" ");
+    if detail.is_empty() {
+        eprintln!("perf_probe event={}", event);
+    } else {
+        eprintln!("perf_probe event={} {}", event, detail);
+    }
+}
+
 async fn ensure_column_exists(pool: &DbPool, table: &str, column: &str, alter_sql: &str) -> Result<()> {
     let pragma = format!("PRAGMA table_info({})", table);
     let rows = sqlx::query_as::<_, (i64, String, String, i64, Option<String>, i64)>(&pragma)
@@ -69,6 +91,7 @@ pub async fn init_db(database_url: &str) -> Result<DbPool> {
 
 
 pub async fn refresh_provider_risk_snapshots(pool: &DbPool) -> Result<()> {
+    let started = std::time::Instant::now();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -115,12 +138,18 @@ pub async fn refresh_provider_risk_snapshots(pool: &DbPool) -> Result<()> {
     .execute(pool)
     .await?;
 
+    perf_probe_log(
+        "refresh_provider_risk_snapshots",
+        &[("scope", "all".to_string()), ("elapsed_ms", started.elapsed().as_millis().to_string())],
+    );
+
     Ok(())
 }
 
 
 pub async fn refresh_provider_risk_snapshot_for_provider(pool: &DbPool, provider: Option<&str>) -> Result<()> {
     let Some(provider) = provider else { return Ok(()); };
+    let started = std::time::Instant::now();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -148,11 +177,16 @@ pub async fn refresh_provider_risk_snapshot_for_provider(pool: &DbPool, provider
     .bind(provider)
     .execute(pool)
     .await?;
+    perf_probe_log(
+        "refresh_provider_risk_snapshot",
+        &[("scope", "provider".to_string()), ("provider", provider.to_string()), ("elapsed_ms", started.elapsed().as_millis().to_string())],
+    );
     Ok(())
 }
 
 pub async fn refresh_provider_region_risk_snapshot_for_pair(pool: &DbPool, provider: Option<&str>, region: Option<&str>) -> Result<()> {
     let (Some(provider), Some(region)) = (provider, region) else { return Ok(()); };
+    let started = std::time::Instant::now();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -186,6 +220,10 @@ pub async fn refresh_provider_region_risk_snapshot_for_pair(pool: &DbPool, provi
     .bind(region)
     .execute(pool)
     .await?;
+    perf_probe_log(
+        "refresh_provider_region_risk_snapshot",
+        &[("scope", "provider_region".to_string()), ("provider", provider.to_string()), ("region", region.to_string()), ("elapsed_ms", started.elapsed().as_millis().to_string())],
+    );
     Ok(())
 }
 
@@ -221,12 +259,16 @@ pub async fn refresh_proxy_trust_views_for_scope(pool: &DbPool, proxy_id: &str, 
     let provider_region_risk_after = provider_region_risk_hit_for_pair(pool, provider, region).await?;
 
     if provider.is_none() {
+        perf_probe_log("refresh_proxy_trust_views_for_scope", &[("branch", "proxy_only_providerless".to_string()), ("proxy_id", proxy_id.to_string())]);
         refresh_cached_trust_score_for_proxy(pool, proxy_id).await?;
     } else if provider_risk_before != provider_risk_after {
+        perf_probe_log("refresh_proxy_trust_views_for_scope", &[("branch", "provider_scope_flip".to_string()), ("proxy_id", proxy_id.to_string()), ("provider", provider.unwrap_or_default().to_string())]);
         refresh_cached_trust_scores_for_provider(pool, provider).await?;
     } else if provider_region_risk_before != provider_region_risk_after {
+        perf_probe_log("refresh_proxy_trust_views_for_scope", &[("branch", "provider_region_scope_flip".to_string()), ("proxy_id", proxy_id.to_string()), ("provider", provider.unwrap_or_default().to_string()), ("region", region.unwrap_or_default().to_string())]);
         refresh_cached_trust_scores_for_provider_region(pool, provider, region).await?;
     } else {
+        perf_probe_log("refresh_proxy_trust_views_for_scope", &[("branch", "proxy_only_no_flip".to_string()), ("proxy_id", proxy_id.to_string()), ("provider", provider.unwrap_or_default().to_string()), ("region", region.unwrap_or_default().to_string())]);
         refresh_cached_trust_score_for_proxy(pool, proxy_id).await?;
     }
 
@@ -262,6 +304,7 @@ fn cached_trust_score_update_sql(where_clause: Option<&str>) -> String {
 }
 
 pub async fn refresh_cached_trust_scores(pool: &DbPool) -> Result<()> {
+    let started = std::time::Instant::now();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -274,10 +317,12 @@ pub async fn refresh_cached_trust_scores(pool: &DbPool) -> Result<()> {
         .bind(&now)
         .execute(pool)
         .await?;
+    perf_probe_log("refresh_cached_trust_scores", &[("scope", "all".to_string()), ("elapsed_ms", started.elapsed().as_millis().to_string())]);
     Ok(())
 }
 
 pub async fn refresh_cached_trust_score_for_proxy(pool: &DbPool, proxy_id: &str) -> Result<()> {
+    let started = std::time::Instant::now();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -291,12 +336,14 @@ pub async fn refresh_cached_trust_score_for_proxy(pool: &DbPool, proxy_id: &str)
         .bind(proxy_id)
         .execute(pool)
         .await?;
+    perf_probe_log("refresh_cached_trust_scores", &[("scope", "proxy".to_string()), ("proxy_id", proxy_id.to_string()), ("elapsed_ms", started.elapsed().as_millis().to_string())]);
     Ok(())
 }
 
 
 pub async fn refresh_cached_trust_scores_for_provider(pool: &DbPool, provider: Option<&str>) -> Result<()> {
     let Some(provider) = provider else { return Ok(()); };
+    let started = std::time::Instant::now();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -310,11 +357,13 @@ pub async fn refresh_cached_trust_scores_for_provider(pool: &DbPool, provider: O
         .bind(provider)
         .execute(pool)
         .await?;
+    perf_probe_log("refresh_cached_trust_scores", &[("scope", "provider".to_string()), ("provider", provider.to_string()), ("elapsed_ms", started.elapsed().as_millis().to_string())]);
     Ok(())
 }
 
 pub async fn refresh_cached_trust_scores_for_provider_region(pool: &DbPool, provider: Option<&str>, region: Option<&str>) -> Result<()> {
     let (Some(provider), Some(region)) = (provider, region) else { return Ok(()); };
+    let started = std::time::Instant::now();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -329,6 +378,7 @@ pub async fn refresh_cached_trust_scores_for_provider_region(pool: &DbPool, prov
         .bind(region)
         .execute(pool)
         .await?;
+    perf_probe_log("refresh_cached_trust_scores", &[("scope", "provider_region".to_string()), ("provider", provider.to_string()), ("region", region.to_string()), ("elapsed_ms", started.elapsed().as_millis().to_string())]);
     Ok(())
 }
 
