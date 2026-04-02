@@ -132,14 +132,30 @@ fn result_payload(
         "resolution_status": proxy.resolution_status,
     }));
 
-    let fingerprint_runtime_json = fingerprint_runtime.map(|runtime| json!({
-        "env_keys": runtime.envs.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>(),
-        "applied_fields": runtime.applied_fields,
-        "ignored_fields": runtime.ignored_fields,
-        "applied_count": runtime.applied_fields.len(),
-        "ignored_count": runtime.ignored_fields.len(),
-        "warning": (!runtime.ignored_fields.is_empty()).then_some("fingerprint profile contains fields that lightpanda does not currently consume"),
-    }));
+    let fingerprint_runtime_json = fingerprint_runtime.map(|runtime| {
+        let supported_field_count = runtime.applied_fields.iter().filter(|f| *f != "profile_id" && *f != "profile_version").count();
+        let unsupported_field_count = runtime.ignored_fields.len();
+        let consumption_status = if supported_field_count == 0 && unsupported_field_count == 0 {
+            "metadata_only"
+        } else if supported_field_count == 0 {
+            "ignored_only"
+        } else if unsupported_field_count == 0 {
+            "fully_consumed"
+        } else {
+            "partially_consumed"
+        };
+        json!({
+            "env_keys": runtime.envs.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>(),
+            "applied_fields": runtime.applied_fields,
+            "ignored_fields": runtime.ignored_fields,
+            "applied_count": runtime.applied_fields.len(),
+            "ignored_count": runtime.ignored_fields.len(),
+            "supported_field_count": supported_field_count,
+            "unsupported_field_count": unsupported_field_count,
+            "consumption_status": consumption_status,
+            "warning": (!runtime.ignored_fields.is_empty()).then_some("fingerprint profile contains fields that lightpanda does not currently consume"),
+        })
+    });
 
     json!({
         "runner": "lightpanda",
@@ -592,12 +608,21 @@ impl TaskRunner for LightpandaRunner {
                 )
             };
             format!(
-                "{}; fingerprint_runtime: applied_fields={:?}, ignored_fields={:?}, applied_count={}, ignored_count={}{}",
+                "{}; fingerprint_runtime: applied_fields={:?}, ignored_fields={:?}, applied_count={}, ignored_count={}, consumption_status={}{}",
                 message,
                 runtime.applied_fields,
                 runtime.ignored_fields,
                 runtime.applied_fields.len(),
                 runtime.ignored_fields.len(),
+                if runtime.applied_fields.iter().filter(|f| *f != "profile_id" && *f != "profile_version").count() == 0 && runtime.ignored_fields.is_empty() {
+                    "metadata_only"
+                } else if runtime.applied_fields.iter().filter(|f| *f != "profile_id" && *f != "profile_version").count() == 0 {
+                    "ignored_only"
+                } else if runtime.ignored_fields.is_empty() {
+                    "fully_consumed"
+                } else {
+                    "partially_consumed"
+                },
                 ignored_note,
             )
         } else if task.fingerprint_profile.is_some() {
@@ -721,6 +746,42 @@ mod tests {
         assert!(runtime.ignored_fields.iter().any(|f| f == "unsupported_blob"));
     }
 
+    #[test]
+    fn build_lightpanda_fingerprint_runtime_marks_partial_consumption_when_fields_are_ignored() {
+        let task = RunnerTask {
+            task_id: "task-test".to_string(),
+            attempt: 1,
+            kind: "open_page".to_string(),
+            payload: json!({"url": "https://example.com"}),
+            timeout_seconds: Some(5),
+            fingerprint_profile: Some(crate::runner::RunnerFingerprintProfile {
+                id: "fp-partial".to_string(),
+                version: 1,
+                profile_json: json!({
+                    "timezone": "Asia/Shanghai",
+                    "unsupported_blob": {"x": 1}
+                }),
+            }),
+            proxy: None,
+        };
+
+        let runtime = build_lightpanda_fingerprint_runtime(&task).expect("runtime");
+        let runtime_json = serde_json::json!({
+            "supported_field_count": runtime.applied_fields.iter().filter(|f| *f != "profile_id" && *f != "profile_version").count(),
+            "unsupported_field_count": runtime.ignored_fields.len(),
+            "consumption_status": if runtime.applied_fields.iter().filter(|f| *f != "profile_id" && *f != "profile_version").count() == 0 && runtime.ignored_fields.is_empty() {
+                "metadata_only"
+            } else if runtime.applied_fields.iter().filter(|f| *f != "profile_id" && *f != "profile_version").count() == 0 {
+                "ignored_only"
+            } else if runtime.ignored_fields.is_empty() {
+                "fully_consumed"
+            } else {
+                "partially_consumed"
+            }
+        });
+        assert_eq!(runtime_json.get("consumption_status").and_then(|v| v.as_str()), Some("partially_consumed"));
+    }
+
     #[tokio::test]
     async fn execute_reports_fingerprint_runtime_when_profile_is_present() {
         let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -761,6 +822,14 @@ exit 0",
                 .and_then(|v| v.as_array())
                 .map(|v| !v.is_empty()),
             Some(true)
+        );
+        assert_eq!(
+            json.get("fingerprint_runtime").and_then(|v| v.get("consumption_status")).and_then(|v| v.as_str()),
+            Some("fully_consumed")
+        );
+        assert_eq!(
+            json.get("fingerprint_runtime").and_then(|v| v.get("supported_field_count")).and_then(|v| v.as_u64()),
+            Some(3)
         );
         assert_eq!(
             json.get("stdout_preview").and_then(|v| v.as_str()),

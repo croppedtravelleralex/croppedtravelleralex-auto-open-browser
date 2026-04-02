@@ -128,3 +128,4 @@
 - **2026年04月03日 00时09分00秒** 完成了**real Lightpanda mainline breakdown**，明确当前更大的未完成主线应优先切回 real Lightpanda execution deepening，并将其拆分为执行路径硬化、真实能力扩展、runner 可观测性与指纹真实消费边界四个模块。
 - **2026年04月03日 00时12分00秒** 实现了**Lightpanda execution-path hardening v1**，增强 non-zero exit 的错误分类（含 126/127 特殊情况）、改进 summary artifact 标题与摘要可读性，并补齐对应回归测试。
 - **2026年04月03日 00时15分00秒** 实现了**Lightpanda runner 可观测性 / artifact 质量 v1**，在结果 JSON 与 summary artifact 中新增 `failure_scope` 与 `browser_failure_signal`，并补齐基于 stderr 的浏览器失败信号识别回归测试。
+- **2026年04月03日 00时18分00秒** 实现了**Lightpanda 指纹真实消费边界 v1**，为 `fingerprint_runtime` 增加 `consumption_status`、supported/unsupported field 计数，并补齐部分消费/完全消费相关测试，提升了 real runner 对指纹真实消费程度的可见性。
