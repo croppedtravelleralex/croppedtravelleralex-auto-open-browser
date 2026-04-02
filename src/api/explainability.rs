@@ -1,4 +1,27 @@
 use serde_json::Value;
+use std::time::Instant;
+
+fn perf_probe_enabled() -> bool {
+    std::env::var("AOB_PERF_PROBE")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "on" | "ON"))
+        .unwrap_or(false)
+}
+
+fn perf_probe_log(event: &str, fields: &[(&str, String)]) {
+    if !perf_probe_enabled() {
+        return;
+    }
+    let detail = fields
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join(" ");
+    if detail.is_empty() {
+        eprintln!("perf_probe event={}", event);
+    } else {
+        eprintln!("perf_probe event={} {}", event, detail);
+    }
+}
 
 use super::dto::{CandidateRankPreviewItem, ProxySelectionExplain, SummaryArtifactResponse, TaskResponse, WinnerVsRunnerUpDiff};
 
@@ -184,6 +207,7 @@ fn humanize_selection_factor_label(label: &str) -> &'static str {
 }
 
 fn selection_decision_summary_artifact(result_json: Option<&str>) -> Option<SummaryArtifactResponse> {
+    let started = Instant::now();
     let diff = winner_vs_runner_up_diff(result_json)?;
     let factor_summary = diff
         .factors
@@ -200,7 +224,7 @@ fn selection_decision_summary_artifact(result_json: Option<&str>) -> Option<Summ
             diff.score_gap, factor_summary
         )
     };
-    Some(SummaryArtifactResponse {
+    let artifact = SummaryArtifactResponse {
         category: "summary".to_string(),
         key: "proxy.selection.decision".to_string(),
         source: "selection.proxy".to_string(),
@@ -213,7 +237,12 @@ fn selection_decision_summary_artifact(result_json: Option<&str>) -> Option<Summ
         run_id: None,
         attempt: None,
         timestamp: None,
-    })
+    };
+    perf_probe_log(
+        "selection_decision_summary_artifact",
+        &[("elapsed_ms", started.elapsed().as_millis().to_string()), ("score_gap", diff.score_gap.to_string()), ("factor_count", diff.factors.len().to_string())],
+    );
+    Some(artifact)
 }
 
 pub fn summary_artifacts(result_json: Option<&str>) -> Vec<SummaryArtifactResponse> {

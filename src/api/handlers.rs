@@ -30,6 +30,28 @@ use super::{
     explainability::{build_task_explainability, enrich_summary_artifacts, latest_execution_summaries, summary_artifacts},
 };
 
+fn perf_probe_enabled() -> bool {
+    std::env::var("AOB_PERF_PROBE")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "on" | "ON"))
+        .unwrap_or(false)
+}
+
+fn perf_probe_log(event: &str, fields: &[(&str, String)]) {
+    if !perf_probe_enabled() {
+        return;
+    }
+    let detail = fields
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join(" ");
+    if detail.is_empty() {
+        eprintln!("perf_probe event={}", event);
+    } else {
+        eprintln!("perf_probe event={} {}", event, detail);
+    }
+}
+
 fn now_ts_string() -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -677,6 +699,7 @@ pub async fn status(
     State(state): State<AppState>,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<StatusResponse>, (StatusCode, String)> {
+    let started = Instant::now();
     let counts = load_counts(&state).await?;
     let limit = sanitize_limit(query.limit, 5, 100);
     let offset = sanitize_offset(query.offset);
@@ -734,7 +757,7 @@ pub async fn status(
     let verify_metrics = load_verify_metrics(&state).await?;
     let latest_execution_summaries = latest_execution_summaries(&latest_tasks);
 
-    Ok(Json(StatusResponse {
+    let response = StatusResponse {
         service: "AutoOpenBrowser".to_string(),
         queue_len: counts.queued as usize,
         counts,
@@ -752,7 +775,12 @@ pub async fn status(
         verify_metrics,
         latest_execution_summaries,
         latest_tasks,
-    }))
+    };
+    perf_probe_log(
+        "api_status",
+        &[("elapsed_ms", started.elapsed().as_millis().to_string()), ("latest_task_count", response.latest_tasks.len().to_string()), ("latest_summary_count", response.latest_execution_summaries.len().to_string())],
+    );
+    Ok(Json(response))
 }
 
 async fn load_cached_trust_score_row(
@@ -970,6 +998,7 @@ pub async fn explain_proxy_selection(
     State(state): State<AppState>,
     Path(proxy_id): Path<String>,
 ) -> Result<Json<ProxySelectionExplainResponse>, (StatusCode, String)> {
+    let started = Instant::now();
     let now = now_ts_string();
     let row = sqlx::query_as::<_, (String, Option<String>, Option<String>, f64, i64, i64, Option<String>, Option<i64>, Option<i64>, Option<String>, Option<String>, Option<i64>, Option<String>, Option<String>)>(
         &format!(
@@ -1037,7 +1066,7 @@ pub async fn explain_proxy_selection(
     );
 
     let winner_vs_runner_up_diff = candidate_rank_preview.first().and_then(|item| item.winner_vs_runner_up_diff.clone());
-    Ok(Json(ProxySelectionExplainResponse {
+    let response = ProxySelectionExplainResponse {
         proxy_id: id,
         trust_score_total,
         trust_score_cached_at: cached_at,
@@ -1047,7 +1076,12 @@ pub async fn explain_proxy_selection(
         trust_score_components: components,
         candidate_rank_preview,
         winner_vs_runner_up_diff,
-    }))
+    };
+    perf_probe_log(
+        "api_proxy_explain",
+        &[("proxy_id", response.proxy_id.clone()), ("elapsed_ms", started.elapsed().as_millis().to_string()), ("candidate_count", response.candidate_rank_preview.len().to_string())],
+    );
+    Ok(Json(response))
 }
 
 pub async fn create_task(
