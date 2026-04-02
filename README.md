@@ -4,6 +4,7 @@
 - **Completed in current stage:** providerScope lazy refresh validated; provider risk version / seen v1 landed; selection intentionally unchanged; explain-side version visibility landed and validated; providerRegion deferred for this stage
 - **Frozen in current stage:** providerRegion implementation; selection ranking redesign around version semantics; broad trust-score semantics rewrite; broad explainability rewrite
 - **Reopen rule:** deferred lines reopen only when their documented reopen conditions are explicitly met
+- **Entry-summary update rule:** update README snapshot only after STATUS / TODO / PROGRESS are aligned; see `docs/entry-summary-update-checklist.md`
 - **Fast answer to "where are we now?":** refresh-scope work is closed for this stage; current state is stable; deferred lines remain frozen unless reopen conditions are met
 
 
