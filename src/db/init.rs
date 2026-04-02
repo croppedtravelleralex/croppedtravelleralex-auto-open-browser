@@ -79,7 +79,11 @@ pub async fn refresh_provider_risk_snapshots(pool: &DbPool) -> Result<()> {
     sqlx::query(
         r#"INSERT INTO provider_risk_snapshots (provider, success_count, failure_count, risk_hit, updated_at)
            SELECT provider, SUM(success_count), SUM(failure_count),
-                  CASE WHEN SUM(failure_count) >= SUM(success_count) + 5 THEN 1 ELSE 0 END,
+                  CASE
+                    WHEN SUM(failure_count) >= SUM(success_count) + 5 THEN 1
+                    WHEN SUM(CASE WHEN last_probe_error_category = 'exit_ip_not_public' THEN 1 ELSE 0 END) >= 2 THEN 1
+                    ELSE 0
+                  END,
                   ?
            FROM proxies
            WHERE provider IS NOT NULL
@@ -92,15 +96,20 @@ pub async fn refresh_provider_risk_snapshots(pool: &DbPool) -> Result<()> {
     sqlx::query("DELETE FROM provider_region_risk_snapshots").execute(pool).await?;
     sqlx::query(
         r#"INSERT INTO provider_region_risk_snapshots (provider, region, recent_failed_count, risk_hit, updated_at)
-           SELECT provider, region, COUNT(*), CASE WHEN COUNT(*) >= 2 THEN 1 ELSE 0 END, ?
+           SELECT provider, region,
+                  SUM(CASE WHEN last_verify_status = 'failed' AND last_verify_at IS NOT NULL AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - 3600 THEN 1 ELSE 0 END),
+                  CASE
+                    WHEN SUM(CASE WHEN last_verify_status = 'failed' AND last_verify_at IS NOT NULL AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - 3600 THEN 1 ELSE 0 END) >= 2 THEN 1
+                    WHEN SUM(CASE WHEN last_exit_region IS NOT NULL AND region IS NOT NULL AND LOWER(last_exit_region) != LOWER(region) THEN 1 ELSE 0 END) >= 2 THEN 1
+                    ELSE 0
+                  END,
+                  ?
            FROM proxies
            WHERE provider IS NOT NULL
              AND region IS NOT NULL
-             AND last_verify_status = 'failed'
-             AND last_verify_at IS NOT NULL
-             AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - 3600
            GROUP BY provider, region"#,
     )
+    .bind(&now)
     .bind(&now)
     .bind(&now)
     .execute(pool)
@@ -125,7 +134,11 @@ pub async fn refresh_provider_risk_snapshot_for_provider(pool: &DbPool, provider
     sqlx::query(
         r#"INSERT INTO provider_risk_snapshots (provider, success_count, failure_count, risk_hit, updated_at)
            SELECT provider, SUM(success_count), SUM(failure_count),
-                  CASE WHEN SUM(failure_count) >= SUM(success_count) + 5 THEN 1 ELSE 0 END,
+                  CASE
+                    WHEN SUM(failure_count) >= SUM(success_count) + 5 THEN 1
+                    WHEN SUM(CASE WHEN last_probe_error_category = 'exit_ip_not_public' THEN 1 ELSE 0 END) >= 2 THEN 1
+                    ELSE 0
+                  END,
                   ?
            FROM proxies
            WHERE provider = ?
@@ -153,19 +166,24 @@ pub async fn refresh_provider_region_risk_snapshot_for_pair(pool: &DbPool, provi
         .await?;
     sqlx::query(
         r#"INSERT INTO provider_region_risk_snapshots (provider, region, recent_failed_count, risk_hit, updated_at)
-           SELECT provider, region, COUNT(*), CASE WHEN COUNT(*) >= 2 THEN 1 ELSE 0 END, ?
+           SELECT provider, region,
+                  SUM(CASE WHEN last_verify_status = 'failed' AND last_verify_at IS NOT NULL AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - 3600 THEN 1 ELSE 0 END),
+                  CASE
+                    WHEN SUM(CASE WHEN last_verify_status = 'failed' AND last_verify_at IS NOT NULL AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - 3600 THEN 1 ELSE 0 END) >= 2 THEN 1
+                    WHEN SUM(CASE WHEN last_exit_region IS NOT NULL AND region IS NOT NULL AND LOWER(last_exit_region) != LOWER(region) THEN 1 ELSE 0 END) >= 2 THEN 1
+                    ELSE 0
+                  END,
+                  ?
            FROM proxies
            WHERE provider = ?
              AND region = ?
-             AND last_verify_status = 'failed'
-             AND last_verify_at IS NOT NULL
-             AND CAST(last_verify_at AS INTEGER) >= CAST(? AS INTEGER) - 3600
            GROUP BY provider, region"#,
     )
     .bind(&now)
+    .bind(&now)
+    .bind(&now)
     .bind(provider)
     .bind(region)
-    .bind(&now)
     .execute(pool)
     .await?;
     Ok(())
@@ -383,5 +401,44 @@ mod scoped_refresh_tests {
         refresh_proxy_trust_views_for_scope(&db, "proxy-no-provider", None, Some("us-east")).await.expect("refresh helper providerless fallback");
         let providerless: i64 = sqlx::query_scalar("SELECT COALESCE(cached_trust_score, 0) FROM proxies WHERE id = 'proxy-no-provider'").fetch_one(&db).await.expect("providerless cache");
         assert!(providerless > 0);
+    }
+
+
+    #[tokio::test]
+    async fn provider_risk_snapshot_hits_on_exit_ip_not_public_cluster() {
+        let db_url = unique_db_url();
+        let db = init_db(&db_url).await.expect("init db");
+        sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, provider, region, country, status, score, success_count, failure_count, last_probe_error_category, created_at, updated_at)
+                      VALUES
+                      ('proxy-provider-exit-1', 'http', '127.0.0.1', 8080, 'pool-exit', 'us-east', 'US', 'active', 0.6, 1, 0, 'exit_ip_not_public', '1', '1'),
+                      ('proxy-provider-exit-2', 'http', '127.0.0.2', 8081, 'pool-exit', 'us-west', 'US', 'active', 0.6, 1, 0, 'exit_ip_not_public', '1', '1')"#)
+            .execute(&db)
+            .await
+            .expect("insert proxies");
+        refresh_provider_risk_snapshots(&db).await.expect("refresh snapshots");
+        let hit: i64 = sqlx::query_scalar("SELECT risk_hit FROM provider_risk_snapshots WHERE provider = 'pool-exit'")
+            .fetch_one(&db)
+            .await
+            .expect("provider risk hit");
+        assert_eq!(hit, 1);
+    }
+
+    #[tokio::test]
+    async fn provider_region_risk_snapshot_hits_on_region_mismatch_cluster() {
+        let db_url = unique_db_url();
+        let db = init_db(&db_url).await.expect("init db");
+        sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, provider, region, country, status, score, success_count, failure_count, last_exit_region, created_at, updated_at)
+                      VALUES
+                      ('proxy-region-mismatch-1', 'http', '127.0.0.1', 8080, 'pool-region', 'us-east', 'US', 'active', 0.6, 1, 0, 'Virginia', '1', '1'),
+                      ('proxy-region-mismatch-2', 'http', '127.0.0.2', 8081, 'pool-region', 'us-east', 'US', 'active', 0.6, 1, 0, 'Ohio', '1', '1')"#)
+            .execute(&db)
+            .await
+            .expect("insert proxies");
+        refresh_provider_risk_snapshots(&db).await.expect("refresh snapshots");
+        let hit: i64 = sqlx::query_scalar("SELECT risk_hit FROM provider_region_risk_snapshots WHERE provider = 'pool-region' AND region = 'us-east'")
+            .fetch_one(&db)
+            .await
+            .expect("provider region risk hit");
+        assert_eq!(hit, 1);
     }
 }
