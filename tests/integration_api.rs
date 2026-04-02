@@ -3663,3 +3663,86 @@ async fn verify_proxy_returns_recommended_action_labels() {
     let (_, bad_json) = json_response(&app, Request::builder().method("POST").uri("/proxies/proxy-action-bad/verify").body(Body::empty()).expect("request")).await;
     assert_eq!(bad_json.get("recommended_action").and_then(|v| v.as_str()), Some("quarantine"));
 }
+
+#[tokio::test]
+async fn create_task_resolves_proxy_with_soft_min_score_penalty() {
+    let db_url = unique_db_url();
+    let (_state, app) = build_test_app(&db_url).await.expect("build app");
+
+    let proxy_payload = serde_json::json!({
+        "id":"proxy-soft-1",
+        "scheme":"http",
+        "host":"127.0.0.1",
+        "port":8080,
+        "region":"us-east",
+        "country":"US",
+        "provider":"pool-soft",
+        "score":0.65
+    });
+    let (create_status, _) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/proxies").header("content-type", "application/json").body(Body::from(proxy_payload.to_string())).expect("request"),
+    ).await;
+    assert_eq!(create_status, StatusCode::CREATED);
+
+    let payload = serde_json::json!({
+        "kind": "open_page",
+        "url": "https://example.com",
+        "timeout_seconds": 5,
+        "network_policy_json": {"mode": "required_proxy", "provider": "pool-soft", "region": "us-east", "min_score": 0.6, "soft_min_score": 0.8}
+    });
+    let (status, task_create) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/tasks").header("content-type", "application/json").body(Body::from(payload.to_string())).expect("request"),
+    ).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let task_id = task_create.get("id").and_then(|v| v.as_str()).expect("task id").to_string();
+    let task = wait_for_terminal_status(&app, &task_id).await;
+    assert_eq!(task.get("proxy_id").and_then(|v| v.as_str()), Some("proxy-soft-1"));
+    let explain = task.get("selection_explain").expect("selection explain");
+    assert_eq!(explain.get("soft_min_score").and_then(|v| v.as_f64()), Some(0.8));
+    assert_eq!(explain.get("soft_min_score_penalty_applied").and_then(|v| v.as_bool()), Some(true));
+    assert!(task.get("trust_score_total").and_then(|v| v.as_i64()).is_some());
+}
+
+#[tokio::test]
+async fn create_task_hard_min_score_still_rejects_below_threshold() {
+    let db_url = unique_db_url();
+    let (_state, app) = build_test_app(&db_url).await.expect("build app");
+
+    let proxy_payload = serde_json::json!({
+        "id":"proxy-hard-1",
+        "scheme":"http",
+        "host":"127.0.0.1",
+        "port":8081,
+        "region":"us-east",
+        "country":"US",
+        "provider":"pool-hard",
+        "score":0.65
+    });
+    let (create_status, _) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/proxies").header("content-type", "application/json").body(Body::from(proxy_payload.to_string())).expect("request"),
+    ).await;
+    assert_eq!(create_status, StatusCode::CREATED);
+
+    let payload = serde_json::json!({
+        "kind": "open_page",
+        "url": "https://example.com",
+        "timeout_seconds": 5,
+        "network_policy_json": {"mode": "required_proxy", "provider": "pool-hard", "region": "us-east", "min_score": 0.7, "soft_min_score": 0.9}
+    });
+    let (status, task_create) = json_response(
+        &app,
+        Request::builder().method("POST").uri("/tasks").header("content-type", "application/json").body(Body::from(payload.to_string())).expect("request"),
+    ).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let task_id = task_create.get("id").and_then(|v| v.as_str()).expect("task id").to_string();
+    let task = wait_for_terminal_status(&app, &task_id).await;
+    assert!(task.get("proxy_id").is_none() || task.get("proxy_id").and_then(|v| v.as_str()).is_none());
+    let result_json_text: Option<String> = sqlx::query_scalar(r#"SELECT result_json FROM tasks WHERE id = ?"#).bind(&task_id).fetch_one(&_state.db).await.expect("load result");
+    let result_json: Value = serde_json::from_str(result_json_text.as_deref().expect("result json")).expect("parse result json");
+    let policy = result_json.get("payload").and_then(|v| v.get("network_policy_json")).expect("policy");
+    let explain = policy.get("selection_explain").expect("selection explain");
+    assert_eq!(explain.get("no_match_reason_code").and_then(|v| v.as_str()), Some("no_match_after_min_score_filter"));
+}

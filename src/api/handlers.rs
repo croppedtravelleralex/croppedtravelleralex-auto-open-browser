@@ -1007,10 +1007,11 @@ pub async fn explain_proxy_selection(
         provider_risk_hit != 0,
         provider_region_cluster_hit != 0,
         now_ts,
+        None,
     );
     let cached_row = load_cached_trust_score_row(&state, &proxy_id).await?;
     let trust_score_total = cached_row.as_ref().and_then(|row| row.0);
-    let candidate_rank_preview = crate::runner::engine::compute_candidate_preview_with_reasons(&state, &now, None, None, 0.0_f64)
+    let candidate_rank_preview = crate::runner::engine::compute_candidate_preview_with_reasons(&state, &now, None, None, 0.0_f64, None)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to build candidate preview with reasons: {err}")))?;
 

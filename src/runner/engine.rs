@@ -107,6 +107,8 @@ fn selection_explain_json(
     sticky_binding_age_seconds: Option<i64>,
     sticky_reuse_reason: Option<&str>,
     would_rank_position_if_auto: Option<i64>,
+    soft_min_score: Option<f64>,
+    soft_min_score_penalty_applied: Option<bool>,
 ) -> Value {
     let eligibility_gate = "active+cooldown+provider/region+min_score";
     json!({
@@ -117,6 +119,8 @@ fn selection_explain_json(
         "sticky_reuse_reason": sticky_reuse_reason,
         "would_rank_position_if_auto": would_rank_position_if_auto,
         "eligibility_gate": eligibility_gate,
+        "soft_min_score": soft_min_score,
+        "soft_min_score_penalty_applied": soft_min_score_penalty_applied,
         "fallback_reason": fallback_reason,
         "no_match_reason_code": no_match_reason_code,
     })
@@ -134,6 +138,7 @@ pub fn computed_trust_score_components(
     provider_risk_hit: bool,
     provider_region_cluster_hit: bool,
     now_ts: i64,
+    soft_min_score: Option<f64>,
 ) -> TrustScoreComponents {
     let verify_ok_bonus = if last_verify_status == Some("ok") { tuning.verify_ok_bonus } else { 0 };
     let verify_geo_match_bonus = if last_verify_geo_match_ok { tuning.verify_geo_match_bonus } else { 0 };
@@ -147,6 +152,11 @@ pub fn computed_trust_score_components(
     let individual_history_penalty = if failure_count >= success_count + 3 { 2 } else if failure_count > success_count { 1 } else { 0 };
     let provider_risk_penalty = if provider_risk_hit { tuning.provider_failure_margin } else { 0 };
     let provider_region_cluster_penalty = if provider_region_cluster_hit { tuning.provider_region_failure_cluster_count } else { 0 };
+    let soft_min_score_penalty = if let Some(threshold) = soft_min_score {
+        if score < threshold { tuning.soft_min_score_penalty } else { 0 }
+    } else {
+        0
+    };
 
     TrustScoreComponents {
         verify_ok_bonus,
@@ -161,6 +171,7 @@ pub fn computed_trust_score_components(
         individual_history_penalty,
         provider_risk_penalty,
         provider_region_cluster_penalty,
+        soft_min_score_penalty,
     }
 }
 
@@ -178,6 +189,7 @@ fn component_value(components: &TrustScoreComponents, key: &str) -> i64 {
         "individual_history_penalty" => components.individual_history_penalty,
         "provider_risk_penalty" => components.provider_risk_penalty,
         "provider_region_cluster_penalty" => components.provider_region_cluster_penalty,
+        "soft_min_score_penalty" => components.soft_min_score_penalty,
         _ => 0,
     }
 }
@@ -222,6 +234,7 @@ fn empty_components() -> TrustScoreComponents {
         individual_history_penalty: 0,
         provider_risk_penalty: 0,
         provider_region_cluster_penalty: 0,
+        soft_min_score_penalty: 0,
     }
 }
 
@@ -395,6 +408,7 @@ async fn compute_top_candidate_component_map(
     provider: Option<&str>,
     region: Option<&str>,
     min_score: f64,
+    soft_min_score: Option<f64>,
 ) -> Result<std::collections::HashMap<String, TrustScoreComponents>> {
     let query = format!(
         "SELECT id FROM proxies {} ORDER BY {} LIMIT 3",
@@ -411,7 +425,7 @@ async fn compute_top_candidate_component_map(
         .fetch_all(&state.db).await?;
     let mut map = std::collections::HashMap::new();
     for id in ids {
-        let (_, comp) = compute_proxy_selection_explain(state, &id, now).await?;
+        let (_, comp) = compute_proxy_selection_explain(state, &id, now, soft_min_score).await?;
         map.insert(id, comp);
     }
     Ok(map)
@@ -423,6 +437,7 @@ pub async fn compute_candidate_preview_with_reasons(
     provider: Option<&str>,
     region: Option<&str>,
     min_score: f64,
+    soft_min_score: Option<f64>,
 ) -> Result<Vec<CandidateRankPreviewItem>> {
     let query = format!(
         "SELECT id, provider, region, score, COALESCE(cached_trust_score, 0) AS trust_score_total FROM proxies {} ORDER BY {} LIMIT 3",
@@ -437,7 +452,7 @@ pub async fn compute_candidate_preview_with_reasons(
         .bind(region.as_deref())
         .bind(min_score)
         .fetch_all(&state.db).await?;
-    let component_map = compute_top_candidate_component_map(state, now, provider, region, min_score).await?;
+    let component_map = compute_top_candidate_component_map(state, now, provider, region, min_score, soft_min_score).await?;
     let baseline = rows.get(1).and_then(|row| component_map.get(&row.0));
     let mut out = Vec::new();
     for (idx, (id, provider, region, score, trust_score_total)) in rows.into_iter().enumerate() {
@@ -470,6 +485,7 @@ async fn compute_proxy_selection_explain(
     state: &AppState,
     proxy_id: &str,
     now: &str,
+    soft_min_score: Option<f64>,
 ) -> Result<(Option<i64>, TrustScoreComponents)> {
     let provider_risk_query = "SELECT EXISTS(SELECT 1 FROM provider_risk_snapshots s JOIN proxies p ON p.provider = s.provider WHERE p.id = ? AND s.risk_hit != 0)";
     let provider_region_query = "SELECT EXISTS(SELECT 1 FROM provider_region_risk_snapshots s JOIN proxies p ON p.provider = s.provider AND p.region = s.region WHERE p.id = ? AND s.risk_hit != 0)";
@@ -497,6 +513,7 @@ async fn compute_proxy_selection_explain(
         provider_risk_hit != 0,
         provider_region_cluster_hit != 0,
         now.parse::<i64>().unwrap_or_default(),
+        soft_min_score,
     );
     Ok((trust_score_total, components))
 }
@@ -545,6 +562,7 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
     let provider = policy_obj.get("provider").and_then(|v| v.as_str()).map(|v| v.to_string());
     let region = policy_obj.get("region").and_then(|v| v.as_str()).map(|v| v.to_string());
     let min_score = policy_obj.get("min_score").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let soft_min_score = policy_obj.get("soft_min_score").and_then(|v| v.as_f64());
 
     let mut selection_mode = "auto";
     let mut fallback_reason: Option<&str> = None;
@@ -627,7 +645,7 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
     }
 
     if let Some((id, scheme, host, port, username, password, region, country, provider, score)) = row {
-        let (trust_score_total, trust_score_components) = compute_proxy_selection_explain(state, &id, &now).await?;
+        let (trust_score_total, trust_score_components) = compute_proxy_selection_explain(state, &id, &now, soft_min_score).await?;
         let preview_provider = provider.clone();
         let preview_region = region.clone();
         let rank_proxy_id = id.clone();
@@ -640,7 +658,7 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
         }
         apply_proxy_resolution_metadata(policy_obj, sticky_session.as_deref(), Some(resolved));
         let preview = if selection_mode == "auto" {
-            Some(compute_candidate_preview_with_reasons(state, &now, preview_provider.as_deref(), preview_region.as_deref(), min_score).await?)
+            Some(compute_candidate_preview_with_reasons(state, &now, preview_provider.as_deref(), preview_region.as_deref(), min_score, soft_min_score).await?)
         } else {
             None
         };
@@ -666,12 +684,13 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
         } else {
             None
         };
+        let soft_min_score_penalty_applied = soft_min_score.map(|threshold| score < threshold);
         let candidate_summary = preview
             .as_ref()
             .and_then(|items| items.first())
             .map(|item| item.summary.as_str());
         policy_obj.insert("selection_reason_summary".to_string(), json!(selection_reason_summary_for_mode(selection_mode, trust_score_total, candidate_summary)));
-        policy_obj.insert("selection_explain".to_string(), selection_explain_json(selection_mode, fallback_reason, None, sticky_binding_age_seconds, sticky_reuse_reason, would_rank_position_if_auto));
+        policy_obj.insert("selection_explain".to_string(), selection_explain_json(selection_mode, fallback_reason, None, sticky_binding_age_seconds, sticky_reuse_reason, would_rank_position_if_auto, soft_min_score, soft_min_score_penalty_applied));
         policy_obj.insert("trust_score_components".to_string(), json!(trust_score_components));
         if let Some(preview) = preview {
             policy_obj.insert("candidate_rank_preview".to_string(), json!(preview));
@@ -687,19 +706,19 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
             Some("explicit_proxy_missing_or_ineligible")
         } else if sticky_session.is_some() {
             Some("sticky_binding_missing_or_ineligible")
+        } else if min_score > 0.0 {
+            Some("no_match_after_min_score_filter")
         } else if provider.is_some() && region.is_some() {
             Some("no_match_after_provider_region_filters")
         } else if provider.is_some() {
             Some("no_match_after_provider_filter")
         } else if region.is_some() {
             Some("no_match_after_region_filter")
-        } else if min_score > 0.0 {
-            Some("no_match_after_min_score_filter")
         } else {
             Some("no_eligible_active_proxy")
         };
         policy_obj.insert("selection_reason_summary".to_string(), json!("no eligible active proxy matched the current policy filters"));
-        policy_obj.insert("selection_explain".to_string(), selection_explain_json(selection_mode, fallback_reason, no_match_reason_code, None, None, None));
+        policy_obj.insert("selection_explain".to_string(), selection_explain_json(selection_mode, fallback_reason, no_match_reason_code, None, None, None, soft_min_score, None));
     }
     Ok(())
 }
@@ -1292,6 +1311,7 @@ mod tests {
             individual_history_penalty: 0,
             provider_risk_penalty: 0,
             provider_region_cluster_penalty: 0,
+            soft_min_score_penalty: 0,
         }
     }
 
@@ -1309,6 +1329,7 @@ mod tests {
             individual_history_penalty: 2,
             provider_risk_penalty: 5,
             provider_region_cluster_penalty: 2,
+            soft_min_score_penalty: 0,
         }
     }
 
@@ -1327,6 +1348,7 @@ mod tests {
             true,
             true,
             1000,
+            None,
         );
         assert_eq!(components.verify_ok_bonus, 30);
         assert_eq!(components.verify_geo_match_bonus, 20);

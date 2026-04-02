@@ -140,6 +140,7 @@ pub struct TrustScoreComponents {
     pub individual_history_penalty: i64,
     pub provider_risk_penalty: i64,
     pub provider_region_cluster_penalty: i64,
+    pub soft_min_score_penalty: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,6 +163,8 @@ pub struct ProxySelectionExplain {
     pub sticky_reuse_reason: Option<String>,
     pub would_rank_position_if_auto: Option<i64>,
     pub eligibility_gate: Option<String>,
+    pub soft_min_score: Option<f64>,
+    pub soft_min_score_penalty_applied: Option<bool>,
     pub fallback_reason: Option<String>,
     pub no_match_reason_code: Option<String>,
 }
@@ -355,6 +358,7 @@ pub struct ProxyVerifyBatchRequest {
     pub limit: Option<i64>,
     pub only_stale: Option<bool>,
     pub min_score: Option<f64>,
+    pub soft_min_score: Option<f64>,
     pub stale_after_seconds: Option<i64>,
     pub task_timeout_seconds: Option<i64>,
     pub recently_used_within_seconds: Option<i64>,

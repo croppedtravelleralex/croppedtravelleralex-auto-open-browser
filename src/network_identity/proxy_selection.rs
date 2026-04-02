@@ -19,6 +19,7 @@ pub struct ProxySelectionTuning {
     pub verify_failed_base_penalty: i64,
     pub missing_verify_penalty: i64,
     pub stale_verify_penalty: i64,
+    pub soft_min_score_penalty: i64,
 }
 
 impl Default for ProxySelectionTuning {
@@ -39,6 +40,7 @@ impl Default for ProxySelectionTuning {
             verify_failed_base_penalty: 10,
             missing_verify_penalty: 12,
             stale_verify_penalty: 8,
+            soft_min_score_penalty: 6,
         }
     }
 }
@@ -67,7 +69,7 @@ pub fn current_proxy_selection_rules() -> Vec<ProxySelectionRule> {
         ProxySelectionRule {
             tier: ProxySelectionTier::HardFilter,
             name: "active_and_usable",
-            summary: "仅选择 active、未 cooldown、满足 provider/region/min_score 的代理",
+            summary: "仅选择 active、未 cooldown、满足 provider/region/min_score 的代理；soft_min_score 仅影响排序惩罚",
         },
         ProxySelectionRule {
             tier: ProxySelectionTier::StrongPositiveSignal,
@@ -186,6 +188,7 @@ mod tests {
         assert_eq!(tuning.raw_score_weight_tenths, 10);
         assert_eq!(tuning.verify_ok_bonus, 30);
         assert_eq!(tuning.missing_verify_penalty, 12);
+        assert_eq!(tuning.soft_min_score_penalty, 6);
         let env_tuning = proxy_selection_tuning_from_env();
         assert!(env_tuning.stale_after_seconds > 0);
         assert_eq!(rules.len(), 4);
