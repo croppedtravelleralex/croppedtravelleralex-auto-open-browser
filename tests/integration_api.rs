@@ -2793,6 +2793,43 @@ async fn status_latest_execution_summaries_include_selection_decision_artifact()
 }
 
 #[tokio::test]
+async fn status_latest_execution_summaries_deduplicate_repeated_high_level_artifacts_across_tasks() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, last_smoke_status, last_smoke_protocol_ok, last_smoke_upstream_ok, last_exit_ip, last_anonymity_level, last_smoke_at, last_verify_status, last_verify_geo_match_ok, last_exit_country, last_exit_region, last_verify_at, created_at, updated_at)
+                  VALUES
+                  ('proxy-dedupe-best', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'pool-d', 'active', 0.74, 7, 1, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, 'ok', 1, 'US', 'Virginia', '9999999999', '1', '1'),
+                  ('proxy-dedupe-second', 'http', '127.0.0.2', 8081, NULL, NULL, 'us-east', 'US', 'pool-d', 'active', 0.68, 5, 2, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, 'ok', 0, 'US', 'Virginia', '9999999999', '1', '1')"#)
+        .execute(&state.db)
+        .await
+        .expect("insert proxies");
+
+    for suffix in ["a", "b"] {
+        let payload = serde_json::json!({
+            "kind": "open_page",
+            "url": format!("https://example.com/status-dedupe-{suffix}"),
+            "timeout_seconds": 5,
+            "network_policy_json": {"mode": "required_proxy", "provider": "pool-d", "region": "us-east"}
+        });
+        let (_, create_json) = json_response(&app, Request::builder().method("POST").uri("/tasks").header("content-type", "application/json").body(Body::from(payload.to_string())).expect("request")).await;
+        let task_id = create_json.get("id").and_then(|v| v.as_str()).expect("task id").to_string();
+        let _ = wait_for_terminal_status(&app, &task_id).await;
+    }
+
+    let (status, json) = json_response(
+        &app,
+        Request::builder().uri("/status").body(Body::empty()).expect("request"),
+    ).await;
+    assert_eq!(status, StatusCode::OK);
+    let latest = json.get("latest_execution_summaries").and_then(|v| v.as_array()).expect("latest_execution_summaries");
+    assert_eq!(latest.iter().filter(|item| item.get("key").and_then(|v| v.as_str()) == Some("proxy.selection.decision")).count(), 1);
+    assert_eq!(latest.iter().filter(|item| item.get("key").and_then(|v| v.as_str()) == Some("identity.network.summary")).count(), 1);
+    assert_eq!(latest.iter().filter(|item| item.get("title").and_then(|v| v.as_str()) == Some("proxy growth assessment")).count(), 1);
+    assert!(latest.len() <= 5);
+}
+
+#[tokio::test]
 async fn status_latest_execution_summaries_prioritize_error_over_info() {
     let db_url = unique_db_url();
     let (state, app) = build_test_app(&db_url).await.expect("build app");

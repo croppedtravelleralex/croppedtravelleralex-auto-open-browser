@@ -64,3 +64,27 @@
 - 继续收 explain 解析边界：`summary_artifacts` 与三类自动补全 artifact（selection / identity-network / proxy-growth）也改成复用已解析 `result_json`，不再在同一条构建链里重复 parse。
 - 继续收 explain 摘要职责：把“为什么选中”“当前身份/网络情况”“代理池状态”三块摘要分开，各自只讲自己的事；同步统一 selection / proxy_growth 文案与相关断言。
 - 补真实任务验收：新增 integration 级检查，确认真实跑出来的 `summary_artifacts` 里 selection / identity-network / proxy-growth 三块都在，且断言收敛到“职责和结构正确”，不把可选字段或具体地区值写死。
+
+### Phase 3: 当前最值步骤执行（收口补记）
+- **Status:** complete
+- Actions taken:
+  - 已将 `proxy_growth` 真正收口到 explainability 主链
+  - 已通过定向测试验证 `summary_artifacts` 与 run 级 trace / standardized artifacts 语义
+- Files created/modified:
+  - `src/api/explainability.rs`
+  - `tests/integration_api.rs`
+  - `task_plan.md`
+  - `progress.md`
+  - `findings.md`
+
+### Phase 4: 验证与回归（收口补记）
+- **Status:** complete
+- Actions taken:
+  - 运行并通过：`summary_artifacts_normalize_fields_and_inject_selection_decision`
+  - 运行并通过：`task_runs_expose_run_level_trace_metadata_and_standardized_artifacts`
+- Files created/modified:
+  - `src/api/explainability.rs`
+  - `tests/integration_api.rs`
+  - `task_plan.md`
+  - `progress.md`
+  - `findings.md`

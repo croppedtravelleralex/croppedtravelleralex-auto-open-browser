@@ -529,12 +529,7 @@ pub fn latest_execution_summaries(tasks: &[TaskResponse]) -> Vec<SummaryArtifact
             artifact.task_id = Some(task.id.clone());
             artifact.task_kind = Some(task.kind.clone());
             artifact.task_status = Some(task.status.clone());
-            let dedupe_key = format!(
-                "{}::{}::{}",
-                artifact.task_id.clone().unwrap_or_default(),
-                artifact.key,
-                artifact.title
-            );
+            let dedupe_key = format!("{}::{}", artifact.key, artifact.title);
             if seen.insert(dedupe_key) {
                 items.push((task_index, artifact));
             }
@@ -900,10 +895,10 @@ mod tests {
         ];
 
         let latest = latest_execution_summaries(&tasks);
-        assert_eq!(latest.len(), 3);
+        assert_eq!(latest.len(), 2);
         assert_eq!(latest[0].severity, "error");
         assert_eq!(latest[0].task_id.as_deref(), Some("task-2"));
-        assert!(latest.iter().filter(|item| item.title == "duplicate title").count() == 2);
+        assert!(latest.iter().filter(|item| item.title == "duplicate title").count() == 1);
         assert!(latest.iter().any(|item| item.task_id.as_deref() == Some("task-1")));
     }
 
