@@ -25,6 +25,118 @@ fn perf_probe_log(event: &str, fields: &[(&str, String)]) {
 
 use super::dto::{CandidateRankPreviewItem, FingerprintRuntimeExplain, IdentityNetworkExplain, ProxySelectionExplain, SummaryArtifactResponse, TaskResponse, WinnerVsRunnerUpDiff};
 
+fn parse_result_json(result_json: Option<&str>) -> Option<Value> {
+    result_json.and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+}
+
+fn fingerprint_resolution_status_from_parsed(
+    fingerprint_profile_id: Option<&str>,
+    fingerprint_profile_version: Option<i64>,
+    parsed: Option<&Value>,
+) -> Option<String> {
+    let profile_id = fingerprint_profile_id?;
+    let profile_version = fingerprint_profile_version?;
+
+    if parsed
+        .and_then(|json| json.get("fingerprint_profile"))
+        .and_then(|value| value.get("id"))
+        .and_then(|value| value.as_str())
+        == Some(profile_id)
+        && parsed
+            .and_then(|json| json.get("fingerprint_profile"))
+            .and_then(|value| value.get("version"))
+            .and_then(|value| value.as_i64())
+            == Some(profile_version)
+    {
+        return Some("resolved".to_string());
+    }
+
+    if parsed
+        .and_then(|json| json.get("fingerprint_profile"))
+        .map(|value| value.is_null())
+        == Some(true)
+    {
+        return Some("downgraded".to_string());
+    }
+
+    Some("pending".to_string())
+}
+
+fn proxy_resolution_status_from_parsed(parsed: Option<&Value>) -> Option<String> {
+    parsed?
+        .get("proxy")
+        .and_then(|value| value.get("resolution_status"))
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string())
+        .or_else(|| {
+            parsed
+                .and_then(|value| value.get("payload"))
+                .and_then(|value| value.get("network_policy_json"))
+                .and_then(|value| value.get("proxy_resolution_status"))
+                .and_then(|value| value.as_str())
+                .map(|value| value.to_string())
+        })
+}
+
+fn proxy_identity_from_parsed(parsed: Option<&Value>) -> (Option<String>, Option<String>, Option<String>) {
+    let proxy = parsed.and_then(|json| json.get("proxy"));
+    (
+        proxy
+            .and_then(|value| value.get("id"))
+            .and_then(|value| value.as_str())
+            .map(|v| v.to_string()),
+        proxy
+            .and_then(|value| value.get("provider"))
+            .and_then(|value| value.as_str())
+            .map(|v| v.to_string()),
+        proxy
+            .and_then(|value| value.get("region"))
+            .and_then(|value| value.as_str())
+            .map(|v| v.to_string()),
+    )
+}
+
+fn selection_reason_summary_from_parsed(parsed: Option<&Value>) -> Option<String> {
+    parsed?
+        .get("payload")
+        .and_then(|value| value.get("network_policy_json"))
+        .and_then(|value| value.get("selection_reason_summary"))
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string())
+}
+
+fn selection_explain_from_parsed(parsed: Option<&Value>) -> Option<ProxySelectionExplain> {
+    parsed?
+        .get("payload")
+        .and_then(|value| value.get("network_policy_json"))
+        .and_then(|value| value.get("selection_explain").cloned())
+        .and_then(|value| serde_json::from_value::<ProxySelectionExplain>(value).ok())
+}
+
+fn fingerprint_runtime_explain_from_parsed(parsed: Option<&Value>) -> Option<FingerprintRuntimeExplain> {
+    parsed?
+        .get("fingerprint_runtime_explain")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<FingerprintRuntimeExplain>(value).ok())
+}
+
+fn trust_score_total_from_parsed(parsed: Option<&Value>) -> Option<i64> {
+    parsed?
+        .get("payload")
+        .and_then(|value| value.get("network_policy_json"))
+        .and_then(|value| value.get("trust_score_total"))
+        .and_then(|value| value.as_i64())
+}
+
+fn candidate_rank_preview_from_parsed(parsed: Option<&Value>) -> Vec<CandidateRankPreviewItem> {
+    parsed
+        .and_then(|value| value.get("payload").cloned())
+        .and_then(|value| value.get("network_policy_json").cloned())
+        .and_then(|value| value.get("candidate_rank_preview").cloned())
+        .and_then(|value| serde_json::from_value::<Vec<CandidateRankPreviewItem>>(value).ok())
+        .unwrap_or_default()
+}
+
 #[derive(Debug, Clone)]
 pub struct TaskExplainability {
     pub fingerprint_resolution_status: Option<String>,
@@ -46,119 +158,43 @@ pub fn fingerprint_resolution_status(
     fingerprint_profile_version: Option<i64>,
     result_json: Option<&str>,
 ) -> Option<String> {
-    let profile_id = fingerprint_profile_id?;
-    let profile_version = fingerprint_profile_version?;
-
-    let parsed = result_json.and_then(|raw| serde_json::from_str::<Value>(raw).ok());
-
-    if parsed
-        .as_ref()
-        .and_then(|json| json.get("fingerprint_profile"))
-        .and_then(|value| value.get("id"))
-        .and_then(|value| value.as_str())
-        == Some(profile_id)
-        && parsed
-            .as_ref()
-            .and_then(|json| json.get("fingerprint_profile"))
-            .and_then(|value| value.get("version"))
-            .and_then(|value| value.as_i64())
-            == Some(profile_version)
-    {
-        return Some("resolved".to_string());
-    }
-
-    if parsed
-        .as_ref()
-        .and_then(|json| json.get("fingerprint_profile"))
-        .map(|value| value.is_null())
-        == Some(true)
-    {
-        return Some("downgraded".to_string());
-    }
-
-    Some("pending".to_string())
+    let parsed = parse_result_json(result_json);
+    fingerprint_resolution_status_from_parsed(fingerprint_profile_id, fingerprint_profile_version, parsed.as_ref())
 }
 
 pub fn proxy_resolution_status(result_json: Option<&str>) -> Option<String> {
-    let parsed = result_json.and_then(|raw| serde_json::from_str::<Value>(raw).ok())?;
-    parsed
-        .get("proxy")
-        .and_then(|value| value.get("resolution_status"))
-        .and_then(|value| value.as_str())
-        .map(|value| value.to_string())
-        .or_else(|| {
-            parsed
-                .get("payload")
-                .and_then(|value| value.get("network_policy_json"))
-                .and_then(|value| value.get("proxy_resolution_status"))
-                .and_then(|value| value.as_str())
-                .map(|value| value.to_string())
-        })
+    let parsed = parse_result_json(result_json);
+    proxy_resolution_status_from_parsed(parsed.as_ref())
 }
 
 pub fn proxy_identity(result_json: Option<&str>) -> (Option<String>, Option<String>, Option<String>) {
-    let parsed = result_json.and_then(|raw| serde_json::from_str::<Value>(raw).ok());
-    let proxy = parsed.as_ref().and_then(|json| json.get("proxy"));
-    (
-        proxy
-            .and_then(|value| value.get("id"))
-            .and_then(|value| value.as_str())
-            .map(|v| v.to_string()),
-        proxy
-            .and_then(|value| value.get("provider"))
-            .and_then(|value| value.as_str())
-            .map(|v| v.to_string()),
-        proxy
-            .and_then(|value| value.get("region"))
-            .and_then(|value| value.as_str())
-            .map(|v| v.to_string()),
-    )
+    let parsed = parse_result_json(result_json);
+    proxy_identity_from_parsed(parsed.as_ref())
 }
 
 pub fn selection_reason_summary(result_json: Option<&str>) -> Option<String> {
-    let parsed = result_json.and_then(|raw| serde_json::from_str::<Value>(raw).ok())?;
-    parsed
-        .get("payload")
-        .and_then(|value| value.get("network_policy_json"))
-        .and_then(|value| value.get("selection_reason_summary"))
-        .and_then(|value| value.as_str())
-        .map(|value| value.to_string())
+    let parsed = parse_result_json(result_json);
+    selection_reason_summary_from_parsed(parsed.as_ref())
 }
 
 pub fn selection_explain(result_json: Option<&str>) -> Option<ProxySelectionExplain> {
-    let parsed = result_json.and_then(|raw| serde_json::from_str::<Value>(raw).ok())?;
-    parsed
-        .get("payload")
-        .and_then(|value| value.get("network_policy_json"))
-        .and_then(|value| value.get("selection_explain").cloned())
-        .and_then(|value| serde_json::from_value::<ProxySelectionExplain>(value).ok())
+    let parsed = parse_result_json(result_json);
+    selection_explain_from_parsed(parsed.as_ref())
 }
 
 pub fn fingerprint_runtime_explain(result_json: Option<&str>) -> Option<FingerprintRuntimeExplain> {
-    let parsed = result_json.and_then(|raw| serde_json::from_str::<Value>(raw).ok())?;
-    parsed
-        .get("fingerprint_runtime_explain")
-        .cloned()
-        .and_then(|value| serde_json::from_value::<FingerprintRuntimeExplain>(value).ok())
+    let parsed = parse_result_json(result_json);
+    fingerprint_runtime_explain_from_parsed(parsed.as_ref())
 }
 
 pub fn trust_score_total(result_json: Option<&str>) -> Option<i64> {
-    let parsed = result_json.and_then(|raw| serde_json::from_str::<Value>(raw).ok())?;
-    parsed
-        .get("payload")
-        .and_then(|value| value.get("network_policy_json"))
-        .and_then(|value| value.get("trust_score_total"))
-        .and_then(|value| value.as_i64())
+    let parsed = parse_result_json(result_json);
+    trust_score_total_from_parsed(parsed.as_ref())
 }
 
 pub fn candidate_rank_preview(result_json: Option<&str>) -> Vec<CandidateRankPreviewItem> {
-    let parsed = result_json.and_then(|raw| serde_json::from_str::<Value>(raw).ok());
-    parsed
-        .and_then(|value| value.get("payload").cloned())
-        .and_then(|value| value.get("network_policy_json").cloned())
-        .and_then(|value| value.get("candidate_rank_preview").cloned())
-        .and_then(|value| serde_json::from_value::<Vec<CandidateRankPreviewItem>>(value).ok())
-        .unwrap_or_default()
+    let parsed = parse_result_json(result_json);
+    candidate_rank_preview_from_parsed(parsed.as_ref())
 }
 
 pub fn winner_vs_runner_up_diff(result_json: Option<&str>) -> Option<WinnerVsRunnerUpDiff> {
@@ -507,12 +543,14 @@ pub fn build_task_explainability(
     task_status: Option<&str>,
     timestamp: Option<&str>,
 ) -> TaskExplainability {
-    let proxy_resolution_status = proxy_resolution_status(result_json);
-    let (proxy_id, proxy_provider, proxy_region) = proxy_identity(result_json);
-    let trust_score_total = trust_score_total(result_json);
-    let selection_reason_summary = selection_reason_summary(result_json);
-    let selection_explain = selection_explain(result_json);
-    let fingerprint_runtime_explain = fingerprint_runtime_explain(result_json);
+    let parsed = parse_result_json(result_json);
+    let parsed_ref = parsed.as_ref();
+    let proxy_resolution_status = proxy_resolution_status_from_parsed(parsed_ref);
+    let (proxy_id, proxy_provider, proxy_region) = proxy_identity_from_parsed(parsed_ref);
+    let trust_score_total = trust_score_total_from_parsed(parsed_ref);
+    let selection_reason_summary = selection_reason_summary_from_parsed(parsed_ref);
+    let selection_explain = selection_explain_from_parsed(parsed_ref);
+    let fingerprint_runtime_explain = fingerprint_runtime_explain_from_parsed(parsed_ref);
     let identity_network_explain = Some(IdentityNetworkExplain {
         selection_explain: selection_explain.clone(),
         fingerprint_runtime_explain: fingerprint_runtime_explain.clone(),
@@ -523,7 +561,10 @@ pub fn build_task_explainability(
         selection_reason_summary: selection_reason_summary.clone(),
         trust_score_total,
     });
-    let winner_vs_runner_up_diff = winner_vs_runner_up_diff(result_json);
+    let winner_vs_runner_up_diff = candidate_rank_preview_from_parsed(parsed_ref)
+        .into_iter()
+        .next()
+        .and_then(|item| item.winner_vs_runner_up_diff);
     let summary_artifacts = enrich_summary_artifacts(
         summary_artifacts(result_json),
         task_id,
@@ -535,10 +576,10 @@ pub fn build_task_explainability(
     );
 
     TaskExplainability {
-        fingerprint_resolution_status: fingerprint_resolution_status(
+        fingerprint_resolution_status: fingerprint_resolution_status_from_parsed(
             fingerprint_profile_id,
             fingerprint_profile_version,
-            result_json,
+            parsed_ref,
         ),
         proxy_id,
         proxy_provider,
