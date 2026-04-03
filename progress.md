@@ -62,3 +62,4 @@
 - 收口 explain 文案质量：把 `proxy selection decision`、`proxy growth assessment`、`fingerprint runtime assessment` 从工程腔改成更接近用户阅读的摘要表达，减少 `winner/runner-up`、参数串、`resolved with` 这类内部措辞。
 - 开始收 typed / JSON 边界：在 `src/api/explainability.rs` 引入统一 `parse_result_json` 与按已解析 `Value` 取字段的内部 helper，减少 `build_task_explainability` 一次构建内的重复 JSON 解析与松散取值路径。
 - 继续收 explain 解析边界：`summary_artifacts` 与三类自动补全 artifact（selection / identity-network / proxy-growth）也改成复用已解析 `result_json`，不再在同一条构建链里重复 parse。
+- 继续收 explain 摘要职责：把“为什么选中”“当前身份/网络情况”“代理池状态”三块摘要分开，各自只讲自己的事；同步统一 selection / proxy_growth 文案与相关断言。

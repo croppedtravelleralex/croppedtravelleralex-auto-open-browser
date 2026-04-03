@@ -282,10 +282,10 @@ fn selection_decision_summary_artifact_from_parsed(parsed: Option<&Value>) -> Op
         .collect::<Vec<_>>()
         .join(", ");
     let summary = if factor_summary.is_empty() {
-        format!("selected this proxy by a {}-point trust-score margin", diff.score_gap)
+        format!("this proxy stayed ahead by {} trust-score points", diff.score_gap)
     } else {
         format!(
-            "selected this proxy by a {}-point trust-score margin; biggest reasons: {}",
+            "this proxy stayed ahead by {} trust-score points; biggest score drivers: {}",
             diff.score_gap, factor_summary
         )
     };
@@ -326,7 +326,7 @@ fn identity_network_summary_artifact_from_parsed(parsed: Option<&Value>) -> Opti
         parts.push(format!("proxy {}", proxy_id));
     }
     if let Some(status) = proxy_resolution_status.as_deref() {
-        parts.push(format!("resolution {}", status));
+        parts.push(format!("proxy resolution {}", status));
     }
     if let Some(tag) = fingerprint_runtime_explain
         .as_ref()
@@ -335,7 +335,13 @@ fn identity_network_summary_artifact_from_parsed(parsed: Option<&Value>) -> Opti
         parts.push(format!("fingerprint budget {}", tag));
     }
     if let Some(summary) = selection_reason_summary.as_deref() {
-        parts.push(summary.to_string());
+        let short = summary
+            .split(';')
+            .next()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(summary);
+        parts.push(format!("selection summary {}", short));
     }
     if parts.is_empty() {
         return None;
@@ -388,7 +394,7 @@ fn proxy_growth_summary_artifact_from_parsed(parsed: Option<&Value>) -> Option<S
         title: "proxy growth assessment".to_string(),
         summary: if require_replenish {
             format!(
-                "proxy pool is below target for this request; target region {} ; selected region {} ; availability {}% ({}) ; region signal {}",
+                "pool needs replenishment for this request; target region {} ; selected region {} ; availability {}% ({}) ; region fit {}",
                 target_region,
                 selected_proxy_region,
                 available_ratio_percent,
@@ -397,7 +403,7 @@ fn proxy_growth_summary_artifact_from_parsed(parsed: Option<&Value>) -> Option<S
             )
         } else {
             format!(
-                "proxy pool looks healthy for this request; target region {} ; selected region {} ; availability {}% ({}) ; region signal {}",
+                "pool is healthy for this request; target region {} ; selected region {} ; availability {}% ({}) ; region fit {}",
                 target_region,
                 selected_proxy_region,
                 available_ratio_percent,
@@ -727,24 +733,25 @@ mod tests {
         assert_eq!(selection.key, "proxy.selection.decision");
         assert_eq!(selection.source, "selection.proxy");
         assert_eq!(selection.severity, "info");
-        assert!(selection.summary.contains("selected this proxy by a"));
-        assert!(selection.summary.contains("biggest reasons"));
+        assert!(selection.summary.contains("this proxy stayed ahead by"));
+        assert!(selection.summary.contains("biggest score drivers"));
 
         let identity = artifacts.iter().find(|a| a.title == "identity and network summary").expect("identity artifact");
         assert_eq!(identity.key, "identity.network.summary");
         assert_eq!(identity.source, "selection.identity_network");
         assert_eq!(identity.severity, "info");
         assert!(identity.summary.contains("proxy pool-a@us-east"));
-        assert!(identity.summary.contains("resolution resolved"));
+        assert!(identity.summary.contains("proxy resolution resolved"));
         assert!(identity.summary.contains("fingerprint budget medium"));
+        assert!(identity.summary.contains("selection summary"));
 
         let growth = artifacts.iter().find(|a| a.title == "proxy growth assessment").expect("growth artifact");
         assert_eq!(growth.key, "proxy.selection.proxy_growth");
         assert_eq!(growth.source, "selection.proxy_growth");
         assert_eq!(growth.severity, "info");
-        assert!(growth.summary.contains("proxy pool looks healthy for this request"));
+        assert!(growth.summary.contains("pool is healthy for this request"));
         assert!(growth.summary.contains("target region us-east"));
-        assert!(growth.summary.contains("region signal exact region match"));
+        assert!(growth.summary.contains("region fit exact region match"));
     }
 
     #[test]

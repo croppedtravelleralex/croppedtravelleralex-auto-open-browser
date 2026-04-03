@@ -1599,7 +1599,7 @@ where
                     "title": "proxy growth assessment",
                     "summary": if require_replenish {
                         format!(
-                            "proxy pool is below target for this request; target region {} ; selected region {} ; availability {}% ; region signal {}",
+                            "pool needs replenishment for this request; target region {} ; selected region {} ; availability {}% ; region fit {}",
                             target_region,
                             selected_proxy_region,
                             available_ratio_percent,
@@ -1607,7 +1607,7 @@ where
                         )
                     } else {
                         format!(
-                            "proxy pool looks healthy for this request; target region {} ; selected region {} ; availability {}% ; region signal {}",
+                            "pool is healthy for this request; target region {} ; selected region {} ; availability {}% ; region fit {}",
                             target_region,
                             selected_proxy_region,
                             available_ratio_percent,
