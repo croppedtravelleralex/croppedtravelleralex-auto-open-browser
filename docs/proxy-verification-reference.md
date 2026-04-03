@@ -57,14 +57,13 @@ Current priority order:
 1. `last_verify_status = ok`
 2. `last_verify_geo_match_ok = true`
 3. `last_smoke_upstream_ok = true`
-4. `score DESC`
-5. `last_used_at ASC`
-6. `created_at ASC`
+4. `last_used_at ASC`
+5. `created_at ASC`
 
 Meaning:
 - verified and geo-matching proxies are preferred over merely high-score proxies
 - smoke upstream success is a useful secondary hint
-- score is still relevant but is no longer the only strong signal
+- trust score already absorbs raw score; recency now only acts as the tail balancing signal
 
 ## Sticky session behavior
 If `sticky_session` is provided:
@@ -128,11 +127,11 @@ Recommended model:
    - `last_verify_at` 过旧（当前实现按 3600 秒口径）的代理后排
 
 4. **最后才看资源均衡**
-   - `score DESC`
    - `last_used_at ASC`
    - `created_at ASC`
 
 这意味着：
+- trust score 已吸收原始分数，尾部不再单独看 `score`
 - **更新鲜、已验证、地理更匹配的代理** 会更容易被选中
 - **最近验证失败或验证过旧的代理** 即使分数高，也不再天然占优
 

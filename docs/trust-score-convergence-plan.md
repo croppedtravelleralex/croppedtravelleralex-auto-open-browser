@@ -12,15 +12,14 @@
 
 ```sql
 (trust_score) DESC,
-score DESC,
 COALESCE(last_used_at, '0') ASC,
 created_at ASC
 ```
 
 这说明：
 - **trust score 已接主链**
-- `score DESC` 仍是次级兜底
-- 资源均衡仍在 score 之后用 `last_used_at / created_at` 承接
+- 原始 `score` 已不再作为单独的二次兜底
+- 资源均衡仍在尾部用 `last_used_at / created_at` 承接
 
 ## 当前已纳入 trust score 的信号
 
@@ -41,12 +40,12 @@ created_at ASC
 
 ## 仍未完全收口的地方
 
-### 1. raw score 仍是排序兜底而非完全内化
-当前 `raw score` 既已经进入 trust score，又还在 `ORDER BY score DESC` 中再次参与排序。
+### 1. raw score 已不再作为排序兜底
+当前 `raw score` 已经进入 trust score 主表达，且主排序中的 `score DESC` 二次兜底已经移除。
 
-这会导致：
-- trust score 接管语义不够彻底
-- 外部理解排序逻辑时更难判断“到底是 trust 在起主作用，还是 raw score 在兜底”
+这意味着：
+- trust score 接管语义更彻底了
+- 外部理解排序逻辑时更容易看出 trust / 资源均衡的职责边界
 
 ### 2. 资源均衡仍是纯排序尾部逻辑
 当前 `last_used_at ASC`、`created_at ASC` 更像调度层资源均衡，而不是明确的策略分值。

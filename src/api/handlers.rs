@@ -1970,7 +1970,6 @@ pub async fn verify_batch_proxies(
            ORDER BY
              CASE WHEN last_verify_status = 'ok' THEN 1 ELSE 0 END ASC,
              COALESCE(last_verify_at, '0') ASC,
-             score DESC,
              created_at ASC
            LIMIT ?"#,
     )
