@@ -13,6 +13,7 @@ use crate::{
         WinnerVsRunnerUpDirection, WinnerVsRunnerUpFactor,
     },
     app::state::AppState,
+    network_identity::fingerprint_consistency::assess_fingerprint_proxy_region_consistency,
     network_identity::fingerprint_policy::FingerprintPerfBudgetTag,
     db::init::refresh_proxy_trust_views_for_scope,
     domain::{
@@ -90,14 +91,6 @@ struct ClaimBudgetSnapshot {
     heavy_limit: usize,
 }
 
-fn budget_tag_str(tag: FingerprintPerfBudgetTag) -> &'static str {
-    match tag {
-        FingerprintPerfBudgetTag::Light => "light",
-        FingerprintPerfBudgetTag::Medium => "medium",
-        FingerprintPerfBudgetTag::Heavy => "heavy",
-    }
-}
-
 fn pick_claim_candidate_index(
     candidate_profile_jsons: &[Option<String>],
     budget: ClaimBudgetSnapshot,
@@ -109,6 +102,47 @@ fn pick_claim_candidate_index(
             FingerprintPerfBudgetTag::Medium => budget.running_medium < budget.medium_limit,
             FingerprintPerfBudgetTag::Heavy => budget.running_heavy < budget.heavy_limit,
         }
+    })
+}
+
+fn build_fingerprint_runtime_explain_json(
+    task_payload: &Value,
+    fingerprint_profile: Option<&RunnerFingerprintProfile>,
+    selected_proxy: Option<&RunnerProxySelection>,
+) -> Value {
+    let target_region = task_payload
+        .get("target_region")
+        .and_then(|v| v.as_str())
+        .or_else(|| task_payload.get("region").and_then(|v| v.as_str()))
+        .or_else(|| task_payload.get("network_policy_json").and_then(|v| v.get("region")).and_then(|v| v.as_str()));
+
+    let (budget_tag, consistency) = match fingerprint_profile {
+        Some(profile) => {
+            let budget_tag = match fingerprint_perf_budget_tag_from_profile_json(Some(&profile.profile_json.to_string())) {
+                FingerprintPerfBudgetTag::Light => "light",
+                FingerprintPerfBudgetTag::Medium => "medium",
+                FingerprintPerfBudgetTag::Heavy => "heavy",
+            };
+            let timezone = profile.profile_json.get("timezone").and_then(|v| v.as_str());
+            let locale = profile.profile_json.get("locale").and_then(|v| v.as_str());
+            let accept_language = profile.profile_json.get("accept_language").and_then(|v| v.as_str())
+                .or_else(|| profile.profile_json.get("headers").and_then(|v| v.get("accept_language")).and_then(|v| v.as_str()));
+            let consistency = assess_fingerprint_proxy_region_consistency(
+                target_region,
+                selected_proxy.and_then(|p| p.region.as_deref()),
+                None,
+                timezone,
+                locale,
+                accept_language,
+            );
+            (Some(budget_tag), Some(consistency))
+        }
+        None => (None, None),
+    };
+
+    json!({
+        "fingerprint_budget_tag": budget_tag,
+        "fingerprint_consistency": consistency,
     })
 }
 
@@ -1381,6 +1415,7 @@ where
 
     let payload_for_binding = payload.clone();
     let proxy_for_health = proxy.clone();
+    let fingerprint_profile_for_explain = fingerprint_profile.clone();
     let execution = if task_kind == "verify_proxy" {
         let proxy_id = payload
             .get("proxy_id")
@@ -1473,6 +1508,7 @@ where
     };
 
     let proxy_growth_explain = build_proxy_growth_explain_json(state, &payload_for_binding, proxy_for_health.as_ref()).await.ok();
+    let fingerprint_runtime_explain = build_fingerprint_runtime_explain_json(&payload_for_binding, fingerprint_profile_for_explain.as_ref(), proxy_for_health.as_ref());
     let result_json = execution.result_json.map(|mut value: serde_json::Value| {
         if let serde_json::Value::Object(ref mut obj) = value {
             let mut summaries = execution
@@ -1511,6 +1547,24 @@ where
                 }));
                 obj.insert("proxy_growth_explain".to_string(), proxy_growth_explain);
             }
+            if fingerprint_runtime_explain.get("fingerprint_budget_tag").and_then(|v| v.as_str()).is_some() {
+                summaries.push(json!({
+                    "category": "summary",
+                    "key": format!("{}.fingerprint_runtime", task_kind),
+                    "source": "runner.fingerprint",
+                    "severity": if fingerprint_runtime_explain.get("fingerprint_consistency").and_then(|v| v.get("overall_status")).and_then(|v| v.as_str()) == Some("mismatch") { "warning" } else { "info" },
+                    "title": "fingerprint runtime assessment",
+                    "summary": format!(
+                        "budget={} consistency={}",
+                        fingerprint_runtime_explain.get("fingerprint_budget_tag").and_then(|v| v.as_str()).unwrap_or("none"),
+                        fingerprint_runtime_explain.get("fingerprint_consistency").and_then(|v| v.get("overall_status")).and_then(|v| v.as_str()).unwrap_or("none"),
+                    ),
+                    "run_id": run_id,
+                    "attempt": attempt,
+                    "timestamp": finished_at,
+                }));
+            }
+            obj.insert("fingerprint_runtime_explain".to_string(), fingerprint_runtime_explain.clone());
             obj.insert("summary_artifacts".to_string(), json!(summaries));
         }
         value.to_string()
