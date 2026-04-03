@@ -145,6 +145,7 @@ pub struct TrustScoreComponents {
     pub provider_risk_penalty: i64,
     pub provider_region_cluster_penalty: i64,
     pub verify_confidence_bonus: i64,
+    pub verify_score_delta_bonus: i64,
     pub anonymity_bonus: i64,
     pub latency_penalty: i64,
     pub exit_ip_not_public_penalty: i64,

@@ -147,3 +147,4 @@
 - **2026年04月03日 10时42分00秒** 实现了**identity/network explain 第一版聚合面**，在 `TaskExplainability -> TaskResponse` 新增 `identity_network_explain`，把 `selection_explain`、`fingerprint_runtime_explain`、代理身份与 trust score 摘要收进统一结构，并完成 `68 + 87` 全量测试验证。
 - **2026年04月03日 10时59分00秒** 清理了**explainability summary / artifact 文案质量第一轮**，把 selection decision、proxy growth、fingerprint runtime 的摘要改成更面向人读的描述，并同步修正 API/集成测试断言，完成 `68 + 87` 全量测试验证。
 - **2026年04月03日 11时03分00秒** 把**verify confidence** 接入 trust score 主链：消费已落库的 `last_verify_confidence`，新增 `verify_confidence_bonus` 组件，并同步修正 `/proxies/:id/explain` 与相关 typed/integration tests，完成 `68 + 87` 全量测试验证。
+- **2026年04月03日 11时12分00秒** 把**verify score delta** 接入 trust score 主链：消费已落库的 `last_verify_score_delta`，新增 `verify_score_delta_bonus` 组件，并同步修正 `/proxies/:id/explain` 与 typed/integration tests，完成 `68 + 87` 全量测试验证。

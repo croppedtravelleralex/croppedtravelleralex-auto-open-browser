@@ -1004,16 +1004,16 @@ pub async fn explain_proxy_selection(
 ) -> Result<Json<ProxySelectionExplainResponse>, (StatusCode, String)> {
     let started = Instant::now();
     let now = now_ts_string();
-    let row = sqlx::query_as::<_, (String, Option<String>, Option<String>, f64, i64, i64, Option<String>, Option<i64>, Option<i64>, Option<String>, Option<f64>, Option<String>, Option<i64>, Option<String>, Option<String>)>(
+    let row = sqlx::query_as::<_, (String, Option<String>, Option<String>, f64, i64, i64, Option<String>, Option<i64>, Option<i64>, Option<String>, Option<f64>, Option<i64>, Option<String>, Option<i64>, Option<String>, Option<String>)>(
         &format!(
-            "SELECT id, provider, region, score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at, last_verify_confidence, last_anonymity_level, last_probe_latency_ms, last_probe_error_category, last_exit_region FROM proxies WHERE id = ?"
+            "SELECT id, provider, region, score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at, last_verify_confidence, last_verify_score_delta, last_anonymity_level, last_probe_latency_ms, last_probe_error_category, last_exit_region FROM proxies WHERE id = ?"
         )
     )
     .bind(&proxy_id)
     .fetch_optional(&state.db)
     .await
     .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to load proxy explain row: {err}")))?;
-    let Some((id, _provider, _region, score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at, last_verify_confidence, last_anonymity_level, last_probe_latency_ms, last_probe_error_category, last_exit_region)) = row else {
+    let Some((id, _provider, _region, score, success_count, failure_count, last_verify_status, last_verify_geo_match_ok, last_smoke_upstream_ok, last_verify_at, last_verify_confidence, last_verify_score_delta, last_anonymity_level, last_probe_latency_ms, last_probe_error_category, last_exit_region)) = row else {
         return Err((StatusCode::NOT_FOUND, format!("proxy not found: {proxy_id}")));
     };
 
@@ -1043,6 +1043,7 @@ pub async fn explain_proxy_selection(
         last_smoke_upstream_ok.unwrap_or(0) != 0,
         last_verify_at.as_ref().and_then(|v: &String| v.parse::<i64>().ok()),
         last_verify_confidence,
+        last_verify_score_delta,
         last_anonymity_level.as_deref(),
         last_probe_latency_ms,
         last_probe_error_category.as_deref(),
