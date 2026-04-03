@@ -492,6 +492,8 @@ fn component_label(key: &str) -> &'static str {
 pub fn summarize_component_advantages(current: &TrustScoreComponents) -> String {
     let mut positives = Vec::new();
     let mut penalties = Vec::new();
+    let collapse_geo_risk = current.geo_risk_penalty > 0;
+    let collapse_verify_risk = current.verify_risk_penalty > 0;
     for key in positive_component_keys() {
         let value = component_value(current, key);
         if value > 0 {
@@ -515,6 +517,12 @@ pub fn summarize_component_advantages(current: &TrustScoreComponents) -> String 
         "verify_risk_penalty",
         "soft_min_score_penalty",
     ] {
+        if collapse_geo_risk && matches!(key, "geo_mismatch_penalty" | "region_mismatch_penalty") {
+            continue;
+        }
+        if collapse_verify_risk && matches!(key, "exit_ip_not_public_penalty" | "probe_error_penalty") {
+            continue;
+        }
         let value = component_value(current, key);
         if value > 0 {
             penalties.push(component_label(key));
@@ -610,9 +618,17 @@ pub fn summarize_component_delta(current: &TrustScoreComponents, baseline: Optio
         return current_summary;
     };
 
+    let collapse_geo_risk = current.geo_risk_penalty > 0 || baseline.geo_risk_penalty > 0;
+    let collapse_verify_risk = current.verify_risk_penalty > 0 || baseline.verify_risk_penalty > 0;
     let mut better = Vec::new();
     let mut worse = Vec::new();
     for key in component_keys() {
+        if collapse_geo_risk && matches!(key, "geo_mismatch_penalty" | "region_mismatch_penalty") {
+            continue;
+        }
+        if collapse_verify_risk && matches!(key, "exit_ip_not_public_penalty" | "probe_error_penalty") {
+            continue;
+        }
         let cv = component_value(current, key);
         let bv = component_value(baseline, key);
         let label = component_label(key);
@@ -1918,12 +1934,36 @@ mod tests {
         let summary = summarize_component_advantages(&components_json());
         assert!(summary.contains("wins on verify_ok, geo_match, upstream_ok, raw_score"));
         let penalty_summary = summarize_component_advantages(&penalty_components_json());
-        assert!(penalty_summary.contains("penalized by geo_mismatch, region_mismatch, geo_risk, missing_verify, stale_verify, verify_failed_heavy, verify_failed_light, verify_failed_base, history_risk, provider_risk, provider_region_risk"));
+        assert!(penalty_summary.contains("penalized by geo_risk, missing_verify, stale_verify, verify_failed_heavy, verify_failed_light, verify_failed_base, history_risk, provider_risk, provider_region_risk"));
+        assert!(!penalty_summary.contains("geo_mismatch"));
+        assert!(!penalty_summary.contains("region_mismatch"));
 
         let delta = summarize_component_delta(&components_json(), Some(&penalty_components_json()));
         assert!(delta.contains("better on"));
         assert!(!delta.contains("worse on"));
         assert!(delta.contains("wins on verify_ok, geo_match, upstream_ok, raw_score"));
+    }
+
+    #[test]
+    fn summarize_component_advantages_prefers_aggregate_risk_labels() {
+        let mut penalty = penalty_components_json();
+        penalty.exit_ip_not_public_penalty = 9;
+        penalty.probe_error_penalty = 6;
+        penalty.verify_risk_penalty = 15;
+
+        let summary = summarize_component_advantages(&penalty);
+        assert!(summary.contains("geo_risk"));
+        assert!(summary.contains("verify_risk"));
+        assert!(!summary.contains("geo_mismatch"));
+        assert!(!summary.contains("region_mismatch"));
+        assert!(!summary.contains("exit_ip_not_public"));
+        assert!(!summary.contains("probe_error_category"));
+
+        let delta = summarize_component_delta(&components_json(), Some(&penalty));
+        assert!(delta.contains("geo_risk"));
+        assert!(delta.contains("verify_risk"));
+        assert!(!delta.contains("exit_ip_not_public"));
+        assert!(!delta.contains("probe_error_category"));
     }
 
     #[test]
