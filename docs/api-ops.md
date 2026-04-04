@@ -23,6 +23,11 @@ Current browser-facing API v1 contract:
 - optional fields: `timeout_seconds`, `priority`, `fingerprint_profile_id`, `proxy_id`, `network_policy_json`
 - current product shape: browser-facing API is the external entry surface; task queue remains the underlying control plane
 
+Current result-shape notes:
+- `get_html` currently returns `content_kind=text/html` plus `html_preview`, `html_length`, `html_truncated`
+- `extract_text` currently returns `content_kind=text/plain` plus `text_preview`, `text_length`, `text_truncated`
+- result depth is still evolving; current previews are useful for lightweight inspection, not yet the final rich content contract
+
 ### Tasks
 - `POST /tasks`
 - `GET /tasks/:id`
