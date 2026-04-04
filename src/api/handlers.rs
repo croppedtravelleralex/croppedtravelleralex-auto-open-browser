@@ -23,7 +23,7 @@ use crate::{
 
 use super::{
     dto::{
-    BrowserGetFinalUrlRequest, BrowserGetHtmlRequest, BrowserGetTitleRequest, BrowserOpenRequest, CancelTaskResponse, CreateFingerprintProfileRequest, CreateProxyRequest, CreateTaskRequest,
+    BrowserExtractTextRequest, BrowserGetFinalUrlRequest, BrowserGetHtmlRequest, BrowserGetTitleRequest, BrowserOpenRequest, CancelTaskResponse, CreateFingerprintProfileRequest, CreateProxyRequest, CreateTaskRequest,
     FingerprintMetricsResponse, FingerprintProfileResponse, HealthResponse, LogResponse,
     PaginationQuery, ProxyMetricsResponse, ProxyResponse, ProxySelectionExplainResponse, ProxySmokeResponse, ProxyTrustCacheCheckResponse, ProxyTrustCacheMaintenanceResponse, ProxyTrustCacheRepairBatchResponse, ProxyTrustCacheRepairResponse, ProxyTrustCacheScanItem, ProxyTrustCacheScanQuery, ProxyTrustCacheScanResponse, ProxyVerifyBatchProviderSummary, ProxyVerifyBatchRequest, ProxyVerifyBatchResponse, ProxyVerifyResponse, RetryTaskResponse, VerifyBatchListQuery, VerifyBatchResponse, VerifyMetricsResponse,
     RunResponse, StatusResponse, TaskResponse, TaskStatusCounts, WorkerStatusResponse,
@@ -1293,6 +1293,26 @@ pub async fn browser_get_final_url(
     }
     let task_payload = CreateTaskRequest {
         kind: "get_final_url".to_string(),
+        url: Some(payload.url),
+        script: None,
+        timeout_seconds: payload.timeout_seconds,
+        priority: payload.priority,
+        fingerprint_profile_id: payload.fingerprint_profile_id,
+        proxy_id: payload.proxy_id,
+        network_policy_json: payload.network_policy_json,
+    };
+    create_task_from_payload(&state, task_payload).await
+}
+
+pub async fn browser_extract_text(
+    State(state): State<AppState>,
+    Json(payload): Json<BrowserExtractTextRequest>,
+) -> Result<(StatusCode, Json<TaskResponse>), (StatusCode, String)> {
+    if payload.url.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "url is required".to_string()));
+    }
+    let task_payload = CreateTaskRequest {
+        kind: "extract_text".to_string(),
         url: Some(payload.url),
         script: None,
         timeout_seconds: payload.timeout_seconds,

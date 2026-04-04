@@ -6,6 +6,23 @@
 - `GET /health`
 - `GET /status`
 
+### Browser-facing API v1
+- `POST /browser/open`
+  - maps to task kind: `open_page`
+- `POST /browser/html`
+  - maps to task kind: `get_html`
+- `POST /browser/title`
+  - maps to task kind: `get_title`
+- `POST /browser/final-url`
+  - maps to task kind: `get_final_url`
+- `POST /browser/text`
+  - maps to task kind: `extract_text`
+
+Current browser-facing API v1 contract:
+- all endpoints accept `url`
+- optional fields: `timeout_seconds`, `priority`, `fingerprint_profile_id`, `proxy_id`, `network_policy_json`
+- current product shape: browser-facing API is the external entry surface; task queue remains the underlying control plane
+
 ### Tasks
 - `POST /tasks`
 - `GET /tasks/:id`
@@ -62,6 +79,8 @@
 - Reclaim-related tests that only verify state transitions should avoid background worker noise
 
 ## Known current limitations
+- browser-facing API v1 currently focuses on entry unification; result-shape depth is still evolving
+- runner support is still staged, not a full rich browser automation surface yet
 - proxy verification is still V1 and not a full external probe chain
 - no dedicated `/proxies/:id/verify` slow path yet
 - proxy selection is still light query-based ordering

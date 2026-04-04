@@ -123,6 +123,16 @@ pub struct BrowserGetFinalUrlRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserExtractTextRequest {
+    pub url: String,
+    pub timeout_seconds: Option<i64>,
+    pub priority: Option<i32>,
+    pub fingerprint_profile_id: Option<String>,
+    pub proxy_id: Option<String>,
+    pub network_policy_json: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaginationQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,

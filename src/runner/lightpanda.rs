@@ -188,7 +188,11 @@ fn result_payload(
         "html_preview": html_preview,
         "html_length": html_length,
         "html_truncated": html_truncated,
-        "content_kind": (action == "get_html").then_some("text/html"),
+        "content_kind": match action {
+            "get_html" => Some("text/html"),
+            "extract_text" => Some("text/plain"),
+            _ => None,
+        },
         "message": message,
     })
 }
@@ -252,7 +256,11 @@ fn build_result(
                 execution_summary_text(action, task, status, error_kind, exit_code, timeout_seconds, &message),
                 failure_scope.unwrap_or("none"),
                 browser_failure_signal.unwrap_or("none"),
-                if action == "get_html" { "text/html" } else { "none" },
+                match action {
+                    "get_html" => "text/html",
+                    "extract_text" => "text/plain",
+                    _ => "none",
+                },
                 html_length
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "none".to_string()),
@@ -297,12 +305,13 @@ fn normalize_action(action: &str) -> Option<&'static str> {
         "get_html" => Some("get_html"),
         "get_title" => Some("get_title"),
         "get_final_url" => Some("get_final_url"),
+        "extract_text" => Some("extract_text"),
         _ => None,
     }
 }
 
 fn supported_actions() -> &'static [&'static str] {
-    &["open_page", "fetch", "get_html", "get_title", "get_final_url"]
+    &["open_page", "fetch", "get_html", "get_title", "get_final_url", "extract_text"]
 }
 
 fn extract_url(payload: &Value) -> Option<String> {
@@ -538,7 +547,7 @@ impl TaskRunner for LightpandaRunner {
                     &task,
                     requested_action.as_str(),
                     requested_action.as_str(),
-                    "lightpanda runner currently supports only action=open_page, action=get_html, action=get_title, action=get_final_url (fetch is accepted as an alias for open_page)",
+                    "lightpanda runner currently supports only action=open_page, action=get_html, action=get_title, action=get_final_url, action=extract_text (fetch is accepted as an alias for open_page)",
                     extract_url(&task.payload).as_deref(),
                 )
             }
@@ -948,6 +957,7 @@ exit 0",
         assert_eq!(normalize_action("get_html"), Some("get_html"));
         assert_eq!(normalize_action("get_title"), Some("get_title"));
         assert_eq!(normalize_action("get_final_url"), Some("get_final_url"));
+        assert_eq!(normalize_action("extract_text"), Some("extract_text"));
         assert_eq!(normalize_action("screenshot"), None);
     }
 
@@ -972,7 +982,7 @@ exit 0",
         assert_eq!(json.get("requested_action").and_then(|v| v.as_str()), Some("fetch"));
         assert_eq!(json.get("action").and_then(|v| v.as_str()), Some("open_page"));
         assert_eq!(json.get("capability_stage").and_then(|v| v.as_str()), Some("minimal_real_execution_v1"));
-        assert_eq!(json.get("supported_actions").and_then(|v| v.as_array()).map(|v| v.len()), Some(5));
+        assert_eq!(json.get("supported_actions").and_then(|v| v.as_array()).map(|v| v.len()), Some(6));
     }
 
     #[tokio::test]

@@ -3,7 +3,7 @@ use axum::{middleware, routing::{get, post}, Router};
 use crate::app::state::AppState;
 
 use super::{auth::auth_middleware, handlers::{
-    browser_get_final_url, browser_get_html, browser_get_title, browser_open, cancel_task, create_fingerprint_profile, create_proxy, create_task, get_fingerprint_profile,
+    browser_extract_text, browser_get_final_url, browser_get_html, browser_get_title, browser_open, cancel_task, create_fingerprint_profile, create_proxy, create_task, get_fingerprint_profile,
     check_proxy_trust_cache, explain_proxy_selection, get_proxy, get_task, get_task_logs, get_task_runs, health, list_fingerprint_profiles, maintain_proxy_trust_cache, repair_proxy_trust_cache, repair_proxy_trust_cache_batch, scan_proxy_trust_cache,
     get_verify_batch, list_proxies, list_verify_batches, retry_task, smoke_test_proxy, verify_batch_proxies, verify_proxy, status,
 }};
@@ -17,6 +17,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/browser/html", post(browser_get_html))
         .route("/browser/title", post(browser_get_title))
         .route("/browser/final-url", post(browser_get_final_url))
+        .route("/browser/text", post(browser_extract_text))
         .route("/fingerprint-profiles", post(create_fingerprint_profile).get(list_fingerprint_profiles))
         .route("/proxies", post(create_proxy).get(list_proxies))
         .route("/proxies/verify-batch", post(verify_batch_proxies).get(list_verify_batches))

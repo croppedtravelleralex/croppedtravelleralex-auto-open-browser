@@ -1214,6 +1214,48 @@ async fn browser_final_url_creates_get_final_url_task() {
 }
 
 #[tokio::test]
+async fn browser_text_creates_extract_text_task() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    let payload = serde_json::json!({
+        "url": "https://example.com/article",
+        "timeout_seconds": 10,
+        "network_policy_json": {
+            "mode": "required_proxy",
+            "proxy_id": "proxy-browser-text-1"
+        }
+    });
+    let (status, json) = json_response(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/browser/text")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(json.get("kind").and_then(|v| v.as_str()), Some("extract_text"));
+    assert_eq!(json.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_QUEUED));
+    let task_id = json.get("id").and_then(|v| v.as_str()).expect("task id");
+
+    let stored: (String, Option<String>, Option<String>) = sqlx::query_as(r#"SELECT kind, input_json, network_policy_json FROM tasks WHERE id = ?"#)
+        .bind(task_id)
+        .fetch_one(&state.db)
+        .await
+        .expect("load browser-text task");
+    assert_eq!(stored.0, "extract_text");
+    let input_json: Value = serde_json::from_str(stored.1.as_deref().expect("input_json")).expect("parse input json");
+    assert_eq!(input_json.get("url").and_then(|v| v.as_str()), Some("https://example.com/article"));
+    assert_eq!(input_json.get("timeout_seconds").and_then(|v| v.as_i64()), Some(10));
+    let network_policy: Value = serde_json::from_str(stored.2.as_deref().expect("network_policy_json")).expect("parse network policy");
+    assert_eq!(network_policy.get("mode").and_then(|v| v.as_str()), Some("required_proxy"));
+    assert_eq!(network_policy.get("proxy_id").and_then(|v| v.as_str()), Some("proxy-browser-text-1"));
+}
+
+#[tokio::test]
 async fn create_task_persists_network_policy_json() {
     let db_url = unique_db_url();
     let (state, app) = build_test_app(&db_url).await.expect("build app");
