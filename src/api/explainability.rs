@@ -249,6 +249,7 @@ fn humanize_selection_factor_label(label: &str) -> &'static str {
         "geo_match" => "geo matched",
         "geo_mismatch" => "country mismatch risk",
         "region_mismatch" => "region mismatch risk",
+        "geo_risk" => "geo risk",
         "upstream_ok" => "upstream reachable",
         "raw_score" => "base score",
         "missing_verify" => "missing verify",
@@ -263,6 +264,7 @@ fn humanize_selection_factor_label(label: &str) -> &'static str {
         "probe_latency" => "probe latency",
         "exit_ip_not_public" => "non-public exit ip risk",
         "probe_error_category" => "probe error risk",
+        "verify_risk" => "verify risk",
         "soft_min_score" => "soft min-score penalty",
         _ => "selection factor",
     }
