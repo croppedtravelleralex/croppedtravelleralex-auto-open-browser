@@ -135,6 +135,7 @@ fn result_payload(
     }));
 
     let (html_preview, html_length, html_truncated) = html_preview_metadata(stdout_preview.as_deref(), action);
+    let (text_preview, text_length, text_truncated) = text_preview_metadata(stdout_preview.as_deref(), action);
 
     let fingerprint_runtime_json = fingerprint_runtime.map(|runtime| {
         let supported_field_count = runtime.applied_fields.iter().filter(|f| *f != "profile_id" && *f != "profile_version").count();
@@ -188,6 +189,9 @@ fn result_payload(
         "html_preview": html_preview,
         "html_length": html_length,
         "html_truncated": html_truncated,
+        "text_preview": text_preview,
+        "text_length": text_length,
+        "text_truncated": text_truncated,
         "content_kind": match action {
             "get_html" => Some("text/html"),
             "extract_text" => Some("text/plain"),
@@ -223,6 +227,7 @@ fn build_result(
         matches!(outcome, RunnerOutcomeStatus::TimedOut),
     ));
     let (_, html_length, _) = html_preview_metadata(stdout_preview.as_deref(), action);
+    let (_, text_length, _) = text_preview_metadata(stdout_preview.as_deref(), action);
 
     RunnerExecutionResult {
         status: outcome,
@@ -252,7 +257,7 @@ fn build_result(
             severity: if is_error { crate::runner::types::SummaryArtifactSeverity::Error } else { crate::runner::types::SummaryArtifactSeverity::Info },
             title: execution_summary_title(action, status, error_kind),
             summary: format!(
-                "{} failure_scope={} browser_failure_signal={} content_kind={} html_length={}",
+                "{} failure_scope={} browser_failure_signal={} content_kind={} html_length={} text_length={}",
                 execution_summary_text(action, task, status, error_kind, exit_code, timeout_seconds, &message),
                 failure_scope.unwrap_or("none"),
                 browser_failure_signal.unwrap_or("none"),
@@ -262,6 +267,9 @@ fn build_result(
                     _ => "none",
                 },
                 html_length
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+                text_length
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "none".to_string()),
             ),
@@ -361,6 +369,20 @@ fn html_preview_metadata(stdout_preview: Option<&str>, action: &str) -> (Option<
     let html_length = preview.chars().count();
     let html_truncated = preview.contains("...[truncated]");
     (Some(preview.to_string()), Some(html_length), Some(html_truncated))
+}
+
+fn text_preview_metadata(stdout_preview: Option<&str>, action: &str) -> (Option<String>, Option<usize>, Option<bool>) {
+    if action != "extract_text" {
+        return (None, None, None);
+    }
+
+    let Some(preview) = stdout_preview else {
+        return (None, Some(0), Some(false));
+    };
+
+    let text_length = preview.chars().count();
+    let text_truncated = preview.contains("...[truncated]");
+    (Some(preview.to_string()), Some(text_length), Some(text_truncated))
 }
 
 fn classify_spawn_error(err: &io::Error) -> &'static str {
@@ -1003,6 +1025,26 @@ exit 0",
         assert_eq!(json.get("html_preview").and_then(|v| v.as_str()), Some("<html><body>ok</body></html>"));
         assert_eq!(json.get("html_length").and_then(|v| v.as_u64()), Some(28));
         assert_eq!(json.get("html_truncated").and_then(|v| v.as_bool()), Some(false));
+    }
+
+    #[tokio::test]
+    async fn execute_supports_extract_text_v1() {
+        let script = write_script(
+            "extract-text",
+            "echo 'hello world from lightpanda'
+exit 0",
+        );
+        let result = execute_with_bin(script.to_str().unwrap(), json!({"url": "https://example.com", "action": "extract_text"}), Some(5)).await;
+        let _ = fs::remove_file(script);
+
+        assert!(matches!(result.status, RunnerOutcomeStatus::Succeeded));
+        let json = result.result_json.expect("result json");
+        assert_eq!(json.get("requested_action").and_then(|v| v.as_str()), Some("extract_text"));
+        assert_eq!(json.get("action").and_then(|v| v.as_str()), Some("extract_text"));
+        assert_eq!(json.get("content_kind").and_then(|v| v.as_str()), Some("text/plain"));
+        assert_eq!(json.get("text_preview").and_then(|v| v.as_str()), Some("hello world from lightpanda"));
+        assert_eq!(json.get("text_length").and_then(|v| v.as_u64()), Some(27));
+        assert_eq!(json.get("text_truncated").and_then(|v| v.as_bool()), Some(false));
     }
 
     #[tokio::test]
