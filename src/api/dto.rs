@@ -83,6 +83,46 @@ pub struct CreateTaskRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserOpenRequest {
+    pub url: String,
+    pub timeout_seconds: Option<i64>,
+    pub priority: Option<i32>,
+    pub fingerprint_profile_id: Option<String>,
+    pub proxy_id: Option<String>,
+    pub network_policy_json: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserGetHtmlRequest {
+    pub url: String,
+    pub timeout_seconds: Option<i64>,
+    pub priority: Option<i32>,
+    pub fingerprint_profile_id: Option<String>,
+    pub proxy_id: Option<String>,
+    pub network_policy_json: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserGetTitleRequest {
+    pub url: String,
+    pub timeout_seconds: Option<i64>,
+    pub priority: Option<i32>,
+    pub fingerprint_profile_id: Option<String>,
+    pub proxy_id: Option<String>,
+    pub network_policy_json: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserGetFinalUrlRequest {
+    pub url: String,
+    pub timeout_seconds: Option<i64>,
+    pub priority: Option<i32>,
+    pub fingerprint_profile_id: Option<String>,
+    pub proxy_id: Option<String>,
+    pub network_policy_json: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaginationQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,

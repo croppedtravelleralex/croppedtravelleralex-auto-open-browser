@@ -1046,6 +1046,174 @@ async fn proxy_v1_create_list_and_get_work() {
 }
 
 #[tokio::test]
+async fn browser_open_creates_open_page_task() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    let payload = serde_json::json!({
+        "url": "https://example.com",
+        "timeout_seconds": 7,
+        "network_policy_json": {
+            "mode": "required_proxy",
+            "proxy_id": "proxy-browser-open-1"
+        }
+    });
+    let (status, json) = json_response(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/browser/open")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(json.get("kind").and_then(|v| v.as_str()), Some("open_page"));
+    assert_eq!(json.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_QUEUED));
+    let task_id = json.get("id").and_then(|v| v.as_str()).expect("task id");
+
+    let stored: (String, Option<String>, Option<String>) = sqlx::query_as(r#"SELECT kind, input_json, network_policy_json FROM tasks WHERE id = ?"#)
+        .bind(task_id)
+        .fetch_one(&state.db)
+        .await
+        .expect("load browser-open task");
+    assert_eq!(stored.0, "open_page");
+    let input_json: Value = serde_json::from_str(stored.1.as_deref().expect("input_json")).expect("parse input json");
+    assert_eq!(input_json.get("url").and_then(|v| v.as_str()), Some("https://example.com"));
+    assert_eq!(input_json.get("timeout_seconds").and_then(|v| v.as_i64()), Some(7));
+    let network_policy: Value = serde_json::from_str(stored.2.as_deref().expect("network_policy_json")).expect("parse network policy");
+    assert_eq!(network_policy.get("mode").and_then(|v| v.as_str()), Some("required_proxy"));
+    assert_eq!(network_policy.get("proxy_id").and_then(|v| v.as_str()), Some("proxy-browser-open-1"));
+}
+
+#[tokio::test]
+async fn browser_html_creates_get_html_task() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    let payload = serde_json::json!({
+        "url": "https://example.com/page",
+        "timeout_seconds": 9,
+        "network_policy_json": {
+            "mode": "required_proxy",
+            "proxy_id": "proxy-browser-html-1"
+        }
+    });
+    let (status, json) = json_response(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/browser/html")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(json.get("kind").and_then(|v| v.as_str()), Some("get_html"));
+    assert_eq!(json.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_QUEUED));
+    let task_id = json.get("id").and_then(|v| v.as_str()).expect("task id");
+
+    let stored: (String, Option<String>, Option<String>) = sqlx::query_as(r#"SELECT kind, input_json, network_policy_json FROM tasks WHERE id = ?"#)
+        .bind(task_id)
+        .fetch_one(&state.db)
+        .await
+        .expect("load browser-html task");
+    assert_eq!(stored.0, "get_html");
+    let input_json: Value = serde_json::from_str(stored.1.as_deref().expect("input_json")).expect("parse input json");
+    assert_eq!(input_json.get("url").and_then(|v| v.as_str()), Some("https://example.com/page"));
+    assert_eq!(input_json.get("timeout_seconds").and_then(|v| v.as_i64()), Some(9));
+    let network_policy: Value = serde_json::from_str(stored.2.as_deref().expect("network_policy_json")).expect("parse network policy");
+    assert_eq!(network_policy.get("mode").and_then(|v| v.as_str()), Some("required_proxy"));
+    assert_eq!(network_policy.get("proxy_id").and_then(|v| v.as_str()), Some("proxy-browser-html-1"));
+}
+
+#[tokio::test]
+async fn browser_title_creates_get_title_task() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    let payload = serde_json::json!({
+        "url": "https://example.com/title",
+        "timeout_seconds": 6,
+        "network_policy_json": {
+            "mode": "required_proxy",
+            "proxy_id": "proxy-browser-title-1"
+        }
+    });
+    let (status, json) = json_response(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/browser/title")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(json.get("kind").and_then(|v| v.as_str()), Some("get_title"));
+    assert_eq!(json.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_QUEUED));
+    let task_id = json.get("id").and_then(|v| v.as_str()).expect("task id");
+
+    let stored: (String, Option<String>, Option<String>) = sqlx::query_as(r#"SELECT kind, input_json, network_policy_json FROM tasks WHERE id = ?"#)
+        .bind(task_id)
+        .fetch_one(&state.db)
+        .await
+        .expect("load browser-title task");
+    assert_eq!(stored.0, "get_title");
+    let input_json: Value = serde_json::from_str(stored.1.as_deref().expect("input_json")).expect("parse input json");
+    assert_eq!(input_json.get("url").and_then(|v| v.as_str()), Some("https://example.com/title"));
+    assert_eq!(input_json.get("timeout_seconds").and_then(|v| v.as_i64()), Some(6));
+    let network_policy: Value = serde_json::from_str(stored.2.as_deref().expect("network_policy_json")).expect("parse network policy");
+    assert_eq!(network_policy.get("mode").and_then(|v| v.as_str()), Some("required_proxy"));
+    assert_eq!(network_policy.get("proxy_id").and_then(|v| v.as_str()), Some("proxy-browser-title-1"));
+}
+
+#[tokio::test]
+async fn browser_final_url_creates_get_final_url_task() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    let payload = serde_json::json!({
+        "url": "https://example.com/redirect",
+        "timeout_seconds": 8,
+        "network_policy_json": {
+            "mode": "required_proxy",
+            "proxy_id": "proxy-browser-final-url-1"
+        }
+    });
+    let (status, json) = json_response(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/browser/final-url")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(json.get("kind").and_then(|v| v.as_str()), Some("get_final_url"));
+    assert_eq!(json.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_QUEUED));
+    let task_id = json.get("id").and_then(|v| v.as_str()).expect("task id");
+
+    let stored: (String, Option<String>, Option<String>) = sqlx::query_as(r#"SELECT kind, input_json, network_policy_json FROM tasks WHERE id = ?"#)
+        .bind(task_id)
+        .fetch_one(&state.db)
+        .await
+        .expect("load browser-final-url task");
+    assert_eq!(stored.0, "get_final_url");
+    let input_json: Value = serde_json::from_str(stored.1.as_deref().expect("input_json")).expect("parse input json");
+    assert_eq!(input_json.get("url").and_then(|v| v.as_str()), Some("https://example.com/redirect"));
+    assert_eq!(input_json.get("timeout_seconds").and_then(|v| v.as_i64()), Some(8));
+    let network_policy: Value = serde_json::from_str(stored.2.as_deref().expect("network_policy_json")).expect("parse network policy");
+    assert_eq!(network_policy.get("mode").and_then(|v| v.as_str()), Some("required_proxy"));
+    assert_eq!(network_policy.get("proxy_id").and_then(|v| v.as_str()), Some("proxy-browser-final-url-1"));
+}
+
+#[tokio::test]
 async fn create_task_persists_network_policy_json() {
     let db_url = unique_db_url();
     let (state, app) = build_test_app(&db_url).await.expect("build app");

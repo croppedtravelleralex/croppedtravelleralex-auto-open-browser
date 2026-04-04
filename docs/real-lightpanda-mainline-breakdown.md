@@ -15,6 +15,12 @@ Current completion: **~40%**
 
 Turn the current Lightpanda path from a minimal real-runner boundary into a more reliable, observable, and operationally useful real execution path.
 
+The externally-facing product target for this line is now explicit:
+
+> **The fingerprint browser should ultimately be operated through a clear API surface.**
+
+That means the project should converge toward a browser-facing API product shape, while the current task system remains the underlying scheduling/control layer.
+
 ## Work modules
 
 ### 1. Execution-path hardening
@@ -26,11 +32,19 @@ Includes:
 - runner error categorization
 
 ### 2. Real capability expansion beyond minimal fetch
-Status: **~30%**
+Status: **~35%**
 Includes:
 - moving beyond the current minimal fetch-style action
 - clarifying what real browser actions are first-class in v1
 - defining safe progression from minimal execution to richer browser automation
+- defining the minimal browser-facing API surface that should sit above the task layer
+
+Current v1 browser API candidates:
+- `open_page`
+- `get_html`
+- `get_title`
+- `get_final_url`
+- `extract_text`
 
 ### 3. Runner observability and artifact quality
 Status: **~35%**
@@ -61,3 +75,15 @@ There is little value in expanding real browser capability if the real runner pa
 ## Stage recommendation
 
 > The next major unfinished mainline should start with **real Lightpanda execution-path hardening**, not with providerRegion expansion and not with more control-surface refinement.
+
+## Product-shape clarification
+
+The project already has a usable internal API entry path through `POST /tasks` plus the Lightpanda runner.
+But that is still a task-oriented control surface, not yet a clear browser-product API.
+
+So the intended convergence is:
+- browser-facing API surface = external operation entry
+- task system = internal scheduling/control plane
+- lightpanda runner = real fingerprint-browser execution core
+
+This should guide future endpoint design and naming.

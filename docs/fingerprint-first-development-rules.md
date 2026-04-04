@@ -62,6 +62,8 @@ Do **not** default to screenshot, GUI, or other visually attractive but lower-va
 14. extract_meta
 15. response_meta / response_headers / page_meta
 
+These are also the strongest candidates for the first browser-facing API entry surface above the task layer.
+
 These actions exist to support fingerprint realism, low-cost validation, and structured automation — **not** to maximize feature count for its own sake.
 
 ---
@@ -152,6 +154,15 @@ Heavy paths must not silently become the default for all tasks.
 
 Current environment reality matters.
 This project should be developed for a **headless Ubuntu server** first, not for a desktop-first environment.
+
+## Product entry rule
+
+The final operation entry for the fingerprint browser should be an API surface.
+
+That means:
+- external callers should be able to treat the system as a browser API product
+- the task queue/control plane may remain underneath, but should not be the final product mental model
+- new browser capabilities should be evaluated partly by whether they help shape a clean browser-facing API
 
 That means the default preference is:
 - text / JSON / structured outputs

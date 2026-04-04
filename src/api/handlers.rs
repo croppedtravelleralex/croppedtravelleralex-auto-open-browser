@@ -23,7 +23,7 @@ use crate::{
 
 use super::{
     dto::{
-    CancelTaskResponse, CreateFingerprintProfileRequest, CreateProxyRequest, CreateTaskRequest,
+    BrowserGetFinalUrlRequest, BrowserGetHtmlRequest, BrowserGetTitleRequest, BrowserOpenRequest, CancelTaskResponse, CreateFingerprintProfileRequest, CreateProxyRequest, CreateTaskRequest,
     FingerprintMetricsResponse, FingerprintProfileResponse, HealthResponse, LogResponse,
     PaginationQuery, ProxyMetricsResponse, ProxyResponse, ProxySelectionExplainResponse, ProxySmokeResponse, ProxyTrustCacheCheckResponse, ProxyTrustCacheMaintenanceResponse, ProxyTrustCacheRepairBatchResponse, ProxyTrustCacheRepairResponse, ProxyTrustCacheScanItem, ProxyTrustCacheScanQuery, ProxyTrustCacheScanResponse, ProxyVerifyBatchProviderSummary, ProxyVerifyBatchRequest, ProxyVerifyBatchResponse, ProxyVerifyResponse, RetryTaskResponse, VerifyBatchListQuery, VerifyBatchResponse, VerifyMetricsResponse,
     RunResponse, StatusResponse, TaskResponse, TaskStatusCounts, WorkerStatusResponse,
@@ -1114,9 +1114,42 @@ pub async fn explain_proxy_selection(
     Ok(Json(response))
 }
 
-pub async fn create_task(
-    State(state): State<AppState>,
-    Json(payload): Json<CreateTaskRequest>,
+fn create_task_response_from_payload(
+    task_id: String,
+    payload: CreateTaskRequest,
+    profile_version: Option<i64>,
+) -> (StatusCode, Json<TaskResponse>) {
+    let priority = payload.priority.unwrap_or(0);
+    (
+        StatusCode::CREATED,
+        Json(TaskResponse {
+            id: task_id,
+            kind: payload.kind,
+            status: TASK_STATUS_QUEUED.to_string(),
+            priority,
+            started_at: None,
+            finished_at: None,
+            summary_artifacts: Vec::new(),
+            fingerprint_profile_id: payload.fingerprint_profile_id,
+            fingerprint_profile_version: profile_version,
+            fingerprint_resolution_status: profile_version.map(|_| "pending".to_string()),
+            proxy_id: None,
+            proxy_provider: None,
+            proxy_region: None,
+            proxy_resolution_status: payload.network_policy_json.as_ref().and_then(|v| v.get("mode")).and_then(|v| v.as_str()).map(|mode| if mode == "direct" { "direct".to_string() } else { "pending".to_string() }),
+            trust_score_total: None,
+            selection_reason_summary: None,
+            selection_explain: None,
+            fingerprint_runtime_explain: None,
+            identity_network_explain: None,
+            winner_vs_runner_up_diff: None,
+        }),
+    )
+}
+
+async fn create_task_from_payload(
+    state: &AppState,
+    payload: CreateTaskRequest,
 ) -> Result<(StatusCode, Json<TaskResponse>), (StatusCode, String)> {
     if payload.kind.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "kind is required".to_string()));
@@ -1181,32 +1214,94 @@ pub async fn create_task(
         )
     })?;
 
+    Ok(create_task_response_from_payload(task_id, payload, profile_version))
+}
 
-    Ok((
-        StatusCode::CREATED,
-        Json(TaskResponse {
-            id: task_id,
-            kind: payload.kind,
-            status: TASK_STATUS_QUEUED.to_string(),
-            priority,
-            started_at: None,
-            finished_at: None,
-            summary_artifacts: Vec::new(),
-            fingerprint_profile_id: payload.fingerprint_profile_id,
-            fingerprint_profile_version: profile_version,
-            fingerprint_resolution_status: profile_version.map(|_| "pending".to_string()),
-            proxy_id: None,
-            proxy_provider: None,
-            proxy_region: None,
-            proxy_resolution_status: payload.network_policy_json.as_ref().and_then(|v| v.get("mode")).and_then(|v| v.as_str()).map(|mode| if mode == "direct" { "direct".to_string() } else { "pending".to_string() }),
-            trust_score_total: None,
-            selection_reason_summary: None,
-            selection_explain: None,
-            fingerprint_runtime_explain: None,
-            identity_network_explain: None,
-            winner_vs_runner_up_diff: None,
-        }),
-    ))
+pub async fn create_task(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateTaskRequest>,
+) -> Result<(StatusCode, Json<TaskResponse>), (StatusCode, String)> {
+    create_task_from_payload(&state, payload).await
+}
+
+pub async fn browser_open(
+    State(state): State<AppState>,
+    Json(payload): Json<BrowserOpenRequest>,
+) -> Result<(StatusCode, Json<TaskResponse>), (StatusCode, String)> {
+    if payload.url.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "url is required".to_string()));
+    }
+    let task_payload = CreateTaskRequest {
+        kind: "open_page".to_string(),
+        url: Some(payload.url),
+        script: None,
+        timeout_seconds: payload.timeout_seconds,
+        priority: payload.priority,
+        fingerprint_profile_id: payload.fingerprint_profile_id,
+        proxy_id: payload.proxy_id,
+        network_policy_json: payload.network_policy_json,
+    };
+    create_task_from_payload(&state, task_payload).await
+}
+
+pub async fn browser_get_html(
+    State(state): State<AppState>,
+    Json(payload): Json<BrowserGetHtmlRequest>,
+) -> Result<(StatusCode, Json<TaskResponse>), (StatusCode, String)> {
+    if payload.url.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "url is required".to_string()));
+    }
+    let task_payload = CreateTaskRequest {
+        kind: "get_html".to_string(),
+        url: Some(payload.url),
+        script: None,
+        timeout_seconds: payload.timeout_seconds,
+        priority: payload.priority,
+        fingerprint_profile_id: payload.fingerprint_profile_id,
+        proxy_id: payload.proxy_id,
+        network_policy_json: payload.network_policy_json,
+    };
+    create_task_from_payload(&state, task_payload).await
+}
+
+pub async fn browser_get_title(
+    State(state): State<AppState>,
+    Json(payload): Json<BrowserGetTitleRequest>,
+) -> Result<(StatusCode, Json<TaskResponse>), (StatusCode, String)> {
+    if payload.url.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "url is required".to_string()));
+    }
+    let task_payload = CreateTaskRequest {
+        kind: "get_title".to_string(),
+        url: Some(payload.url),
+        script: None,
+        timeout_seconds: payload.timeout_seconds,
+        priority: payload.priority,
+        fingerprint_profile_id: payload.fingerprint_profile_id,
+        proxy_id: payload.proxy_id,
+        network_policy_json: payload.network_policy_json,
+    };
+    create_task_from_payload(&state, task_payload).await
+}
+
+pub async fn browser_get_final_url(
+    State(state): State<AppState>,
+    Json(payload): Json<BrowserGetFinalUrlRequest>,
+) -> Result<(StatusCode, Json<TaskResponse>), (StatusCode, String)> {
+    if payload.url.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "url is required".to_string()));
+    }
+    let task_payload = CreateTaskRequest {
+        kind: "get_final_url".to_string(),
+        url: Some(payload.url),
+        script: None,
+        timeout_seconds: payload.timeout_seconds,
+        priority: payload.priority,
+        fingerprint_profile_id: payload.fingerprint_profile_id,
+        proxy_id: payload.proxy_id,
+        network_policy_json: payload.network_policy_json,
+    };
+    create_task_from_payload(&state, task_payload).await
 }
 
 pub async fn get_task(
