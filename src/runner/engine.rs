@@ -545,10 +545,19 @@ pub fn summarize_component_advantages(current: &TrustScoreComponents) -> String 
 pub fn structured_component_delta(current: &TrustScoreComponents, baseline: Option<&TrustScoreComponents>) -> WinnerVsRunnerUpDiff {
     let keys = component_keys();
     let positive = positive_component_keys();
+    let collapse_geo_risk = baseline.map(|b| current.geo_risk_penalty > 0 || b.geo_risk_penalty > 0).unwrap_or(current.geo_risk_penalty > 0);
+    let collapse_verify_risk = baseline.map(|b| current.verify_risk_penalty > 0 || b.verify_risk_penalty > 0).unwrap_or(current.verify_risk_penalty > 0);
+    let filtered_keys: Vec<&'static str> = keys
+        .into_iter()
+        .filter(|key| {
+            !(collapse_geo_risk && matches!(*key, "geo_mismatch_penalty" | "region_mismatch_penalty"))
+                && !(collapse_verify_risk && matches!(*key, "exit_ip_not_public_penalty" | "probe_error_penalty"))
+        })
+        .collect();
     let winner_total_score = keys.iter().map(|key| component_value(current, key)).sum::<i64>();
 
     let Some(baseline) = baseline else {
-        let mut factors: Vec<WinnerVsRunnerUpFactor> = keys
+        let mut factors: Vec<WinnerVsRunnerUpFactor> = filtered_keys
             .into_iter()
             .map(|key| {
                 let value = component_value(current, key);
@@ -574,7 +583,7 @@ pub fn structured_component_delta(current: &TrustScoreComponents, baseline: Opti
 
     let runner_up_total_score = keys.iter().map(|key| component_value(baseline, key)).sum::<i64>();
     let mut factors = Vec::new();
-    for key in keys {
+    for key in filtered_keys {
         let cv = component_value(current, key);
         let bv = component_value(baseline, key);
         let direction = if positive.contains(&key) {
@@ -1972,14 +1981,15 @@ mod tests {
         let baseline = penalty_components_json();
         let delta = structured_component_delta(&current, Some(&baseline));
         assert_eq!(delta.winner_total_score, 68);
-        assert_eq!(delta.runner_up_total_score, 96);
-        assert_eq!(delta.score_gap, -28);
+        assert_eq!(delta.runner_up_total_score, 108);
+        assert_eq!(delta.score_gap, -40);
         let factors = &delta.factors;
         assert!(!factors.is_empty());
         assert!(factors.len() <= 5);
         let labels: Vec<&str> = factors.iter().map(|item| item.label.as_str()).collect();
         assert!(labels.iter().any(|label| *label == "verify_ok"));
         assert!(labels.iter().any(|label| matches!(*label, "missing_verify" | "stale_verify" | "verify_failed_heavy" | "verify_failed_light" | "verify_failed_base" | "history_risk" | "provider_risk" | "provider_region_risk" | "geo_risk")));
+        assert!(!labels.iter().any(|label| matches!(*label, "geo_mismatch" | "region_mismatch" | "exit_ip_not_public" | "probe_error_category")));
         let deltas: Vec<i64> = factors.iter().map(|item| item.delta.abs()).collect();
         assert!(deltas.windows(2).all(|w| w[0] >= w[1]));
     }
