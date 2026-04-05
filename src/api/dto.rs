@@ -58,6 +58,16 @@ pub struct VerifyMetricsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserSummaryResponse {
+    pub title: Option<String>,
+    pub final_url: Option<String>,
+    pub content_kind: Option<String>,
+    pub content_preview: Option<String>,
+    pub content_length: Option<i64>,
+    pub content_ready: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusResponse {
     pub service: String,
     pub queue_len: usize,
@@ -68,6 +78,7 @@ pub struct StatusResponse {
     pub verify_metrics: VerifyMetricsResponse,
     pub latest_execution_summaries: Vec<SummaryArtifactResponse>,
     pub latest_tasks: Vec<TaskResponse>,
+    pub latest_browser_tasks: Vec<TaskResponse>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

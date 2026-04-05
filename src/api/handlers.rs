@@ -29,7 +29,7 @@ use super::{
     PaginationQuery, ProxyMetricsResponse, ProxyResponse, ProxySelectionExplainResponse, ProxySmokeResponse, ProxyTrustCacheCheckResponse, ProxyTrustCacheMaintenanceResponse, ProxyTrustCacheRepairBatchResponse, ProxyTrustCacheRepairResponse, ProxyTrustCacheScanItem, ProxyTrustCacheScanQuery, ProxyTrustCacheScanResponse, ProxyVerifyBatchProviderSummary, ProxyVerifyBatchRequest, ProxyVerifyBatchResponse, ProxyVerifyResponse, RetryTaskResponse, VerifyBatchListQuery, VerifyBatchResponse, VerifyMetricsResponse,
     RunResponse, StatusResponse, TaskResponse, TaskStatusCounts, WorkerStatusResponse,
     },
-    explainability::{build_task_explainability, content_bool_field, content_i64_field, content_string_field, enrich_summary_artifacts, latest_execution_summaries},
+    explainability::{build_task_explainability, content_bool_field, content_i64_field, content_string_field, enrich_summary_artifacts, latest_browser_ready_tasks, latest_execution_summaries},
 };
 
 fn perf_probe_enabled() -> bool {
@@ -769,6 +769,7 @@ pub async fn status(
     let proxy_metrics = build_proxy_metrics(&latest_tasks);
     let verify_metrics = load_verify_metrics(&state).await?;
     let latest_execution_summaries = latest_execution_summaries(&latest_tasks);
+    let latest_browser_tasks = latest_browser_ready_tasks(&latest_tasks, 3);
 
     let response = StatusResponse {
         service: "AutoOpenBrowser".to_string(),
@@ -790,6 +791,7 @@ pub async fn status(
         verify_metrics,
         latest_execution_summaries,
         latest_tasks,
+        latest_browser_tasks,
     };
     perf_probe_log(
         "api_status",

@@ -482,6 +482,66 @@ fn proxy_growth_summary_artifact_from_parsed(parsed: Option<&Value>) -> Option<S
     })
 }
 
+fn browser_result_summary_artifact_from_parsed(parsed: Option<&Value>) -> Option<SummaryArtifactResponse> {
+    let parsed = parsed?;
+    let action = parsed
+        .get("action")
+        .or_else(|| parsed.get("requested_action"))
+        .and_then(|v| v.as_str())?;
+
+    let title = parsed.get("title").and_then(|v| v.as_str());
+    let final_url = parsed.get("final_url").and_then(|v| v.as_str());
+    let content_kind = parsed.get("content_kind").and_then(|v| v.as_str());
+    let content_preview = parsed.get("content_preview").and_then(|v| v.as_str());
+    let content_length = parsed.get("content_length").and_then(|v| v.as_i64());
+    let content_ready = parsed.get("content_ready").and_then(|v| v.as_bool());
+
+    let mut parts = Vec::new();
+    if let Some(title) = title {
+        parts.push(format!("title {}", title));
+    }
+    if let Some(final_url) = final_url {
+        parts.push(format!("final url {}", final_url));
+    }
+    if let Some(kind) = content_kind {
+        parts.push(format!("content {}", kind));
+    }
+    if let Some(length) = content_length {
+        parts.push(format!("content length {}", length));
+    }
+    if let Some(ready) = content_ready {
+        parts.push(format!("content ready {}", ready));
+    }
+    if let Some(preview) = content_preview.filter(|v| !v.is_empty()) {
+        let shortened = if preview.chars().count() > 80 {
+            let prefix = preview.chars().take(80).collect::<String>();
+            format!("{}…", prefix)
+        } else {
+            preview.to_string()
+        };
+        parts.push(format!("preview {}", shortened));
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    Some(SummaryArtifactResponse {
+        category: "summary".to_string(),
+        key: format!("browser.result.{}", action),
+        source: "runner.browser_result".to_string(),
+        severity: "info".to_string(),
+        title: "browser result summary".to_string(),
+        summary: format!("action {} ; {}", action, parts.join(" ; ")),
+        task_id: None,
+        task_kind: None,
+        task_status: None,
+        run_id: None,
+        attempt: None,
+        timestamp: None,
+    })
+}
+
 fn summary_artifacts_from_parsed(parsed: Option<&Value>) -> Vec<SummaryArtifactResponse> {
     let mut artifacts: Vec<SummaryArtifactResponse> = parsed
         .and_then(|value| value.get("summary_artifacts").cloned())
@@ -530,6 +590,13 @@ fn summary_artifacts_from_parsed(parsed: Option<&Value>) -> Vec<SummaryArtifactR
     let has_proxy_growth_summary = artifacts.iter().any(|item| item.title == "proxy growth assessment");
     if !has_proxy_growth_summary {
         if let Some(artifact) = proxy_growth_summary_artifact_from_parsed(parsed) {
+            artifacts.push(artifact);
+        }
+    }
+
+    let has_browser_result_summary = artifacts.iter().any(|item| item.title == "browser result summary");
+    if !has_browser_result_summary {
+        if let Some(artifact) = browser_result_summary_artifact_from_parsed(parsed) {
             artifacts.push(artifact);
         }
     }
@@ -601,6 +668,37 @@ pub fn latest_execution_summaries(tasks: &[TaskResponse]) -> Vec<SummaryArtifact
     items.sort_by_key(|(task_index, artifact)| (summary_severity_rank(&artifact.severity), *task_index));
     items.truncate(5);
     items.into_iter().map(|(_, artifact)| artifact).collect()
+}
+
+pub fn browser_summary_from_task(task: &TaskResponse) -> Option<crate::api::dto::BrowserSummaryResponse> {
+    if task.title.is_none()
+        && task.final_url.is_none()
+        && task.content_kind.is_none()
+        && task.content_preview.is_none()
+        && task.content_length.is_none()
+        && task.content_ready.is_none()
+    {
+        return None;
+    }
+
+    Some(crate::api::dto::BrowserSummaryResponse {
+        title: task.title.clone(),
+        final_url: task.final_url.clone(),
+        content_kind: task.content_kind.clone(),
+        content_preview: task.content_preview.clone(),
+        content_length: task.content_length,
+        content_ready: task.content_ready,
+    })
+}
+
+pub fn latest_browser_ready_tasks(tasks: &[TaskResponse], limit: usize) -> Vec<TaskResponse> {
+    let mut items = tasks
+        .iter()
+        .filter(|task| browser_summary_from_task(task).is_some())
+        .cloned()
+        .collect::<Vec<_>>();
+    items.truncate(limit);
+    items
 }
 
 pub fn build_task_explainability(
@@ -772,6 +870,13 @@ mod tests {
                     "partial_support_warning": "some declared fingerprint fields were not consumed by the current lightpanda runner"
                 }
             },
+            "action": "extract_text",
+            "title": "Example title",
+            "final_url": "https://example.com/final",
+            "content_kind": "text/plain",
+            "content_length": 24,
+            "content_ready": true,
+            "content_preview": "example preview text",
             "summary_artifacts": [{
                 "category": "weird",
                 "title": "fake runner summary",
@@ -788,7 +893,7 @@ mod tests {
     fn summary_artifacts_normalize_fields_and_inject_selection_decision() {
         let raw = sample_result_json_without_selection_artifact();
         let artifacts = summary_artifacts(Some(&raw));
-        assert_eq!(artifacts.len(), 4);
+        assert_eq!(artifacts.len(), 5);
 
         let runner = artifacts.iter().find(|a| a.title == "fake runner summary").expect("runner artifact");
         assert_eq!(runner.category, "summary");
@@ -822,6 +927,12 @@ mod tests {
         assert!(growth.summary.contains("pool is healthy for this request"));
         assert!(growth.summary.contains("target region us-east"));
         assert!(growth.summary.contains("region fit exact region match"));
+
+        let browser = artifacts.iter().find(|a| a.title == "browser result summary").expect("browser artifact");
+        assert_eq!(browser.key, "browser.result.extract_text");
+        assert_eq!(browser.source, "runner.browser_result");
+        assert_eq!(browser.severity, "info");
+        assert!(browser.summary.contains("action extract_text"));
     }
 
     #[test]
@@ -994,6 +1105,79 @@ mod tests {
     }
 
     #[test]
+    fn latest_browser_ready_tasks_prefers_browser_visible_rows() {
+        let tasks = vec![
+            TaskResponse {
+                id: "task-browser-1".to_string(),
+                kind: "get_title".to_string(),
+                status: "succeeded".to_string(),
+                priority: 1,
+                started_at: None,
+                finished_at: None,
+                summary_artifacts: vec![],
+                fingerprint_profile_id: None,
+                fingerprint_profile_version: None,
+                fingerprint_resolution_status: None,
+                proxy_id: None,
+                proxy_provider: None,
+                proxy_region: None,
+                proxy_resolution_status: None,
+                trust_score_total: None,
+                selection_reason_summary: None,
+                selection_explain: None,
+                fingerprint_runtime_explain: None,
+                identity_network_explain: None,
+                winner_vs_runner_up_diff: None,
+                title: Some("Browser 1".to_string()),
+                final_url: Some("https://example.com/1".to_string()),
+                content_preview: None,
+                content_length: None,
+                content_truncated: None,
+                content_kind: None,
+                content_source_action: None,
+                content_ready: None,
+            },
+            TaskResponse {
+                id: "task-non-browser".to_string(),
+                kind: "open_page".to_string(),
+                status: "succeeded".to_string(),
+                priority: 1,
+                started_at: None,
+                finished_at: None,
+                summary_artifacts: vec![],
+                fingerprint_profile_id: None,
+                fingerprint_profile_version: None,
+                fingerprint_resolution_status: None,
+                proxy_id: None,
+                proxy_provider: None,
+                proxy_region: None,
+                proxy_resolution_status: None,
+                trust_score_total: None,
+                selection_reason_summary: None,
+                selection_explain: None,
+                fingerprint_runtime_explain: None,
+                identity_network_explain: None,
+                winner_vs_runner_up_diff: None,
+                title: None,
+                final_url: None,
+                content_preview: None,
+                content_length: None,
+                content_truncated: None,
+                content_kind: None,
+                content_source_action: None,
+                content_ready: None,
+            },
+        ];
+
+        let latest = latest_browser_ready_tasks(&tasks, 3);
+        assert_eq!(latest.len(), 1);
+        assert_eq!(latest[0].id, "task-browser-1");
+        let browser = browser_summary_from_task(&latest[0]).expect("browser summary");
+        assert_eq!(browser.title.as_deref(), Some("Browser 1"));
+        assert_eq!(browser.final_url.as_deref(), Some("https://example.com/1"));
+    }
+
+    #[test]
     fn build_task_explainability_assembles_expected_fields() {
         let raw = sample_result_json_without_selection_artifact();
         let explain = build_task_explainability(
@@ -1020,7 +1204,7 @@ mod tests {
         assert_eq!(explain.identity_network_explain.as_ref().and_then(|v| v.proxy_provider.as_deref()), Some("pool-a"));
         assert_eq!(explain.identity_network_explain.as_ref().and_then(|v| v.fingerprint_runtime_explain.as_ref()).and_then(|v| v.fingerprint_budget_tag.as_deref()), Some("medium"));
         assert!(explain.winner_vs_runner_up_diff.is_some());
-        assert_eq!(explain.summary_artifacts.len(), 4);
+        assert_eq!(explain.summary_artifacts.len(), 5);
         assert!(explain.summary_artifacts.iter().all(|a| a.task_id.as_deref() == Some("task-1")));
         assert!(explain.summary_artifacts.iter().all(|a| a.task_kind.as_deref() == Some("open_page")));
         assert!(explain.summary_artifacts.iter().all(|a| a.task_status.as_deref() == Some("succeeded")));

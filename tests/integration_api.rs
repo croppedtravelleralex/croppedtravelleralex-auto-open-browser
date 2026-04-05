@@ -433,6 +433,8 @@ async fn status_and_task_detail_expose_fingerprint_resolution_status() {
         task.get("id").and_then(|v| v.as_str()) == Some(task_id.as_str())
             && task.get("fingerprint_resolution_status").and_then(|v| v.as_str()) == Some("resolved")
     }));
+    let latest_browser = status_json.get("latest_browser_tasks").and_then(|v| v.as_array()).expect("latest browser tasks");
+    assert!(latest_browser.iter().any(|task| task.get("id").and_then(|v| v.as_str()) == Some(task_id.as_str())));
 
     let downgraded_task_id = "task-status-downgraded".to_string();
     sqlx::query(
@@ -1253,6 +1255,119 @@ async fn browser_text_creates_extract_text_task() {
     let network_policy: Value = serde_json::from_str(stored.2.as_deref().expect("network_policy_json")).expect("parse network policy");
     assert_eq!(network_policy.get("mode").and_then(|v| v.as_str()), Some("required_proxy"));
     assert_eq!(network_policy.get("proxy_id").and_then(|v| v.as_str()), Some("proxy-browser-text-1"));
+}
+
+#[tokio::test]
+async fn browser_outward_contracts_roundtrip_across_task_and_run_views() {
+    let cases = [
+        (
+            "get_html",
+            serde_json::json!({
+                "kind": "get_html",
+                "url": "https://example.com/html",
+                "timeout_seconds": 7,
+                "network_policy_json": {"mode": "required_proxy", "proxy_id": "proxy-browser-contract-html"}
+            }),
+            Some("content_preview"),
+            Some("text/html"),
+            Some("get_html"),
+            Some(true),
+            Some("Fake title for https://example.com/html"),
+            Some("https://example.com/html#final"),
+        ),
+        (
+            "get_title",
+            serde_json::json!({
+                "kind": "get_title",
+                "url": "https://example.com/title-contract",
+                "timeout_seconds": 7,
+                "network_policy_json": {"mode": "required_proxy", "proxy_id": "proxy-browser-contract-title"}
+            }),
+            None,
+            None,
+            None,
+            None,
+            Some("Fake title for https://example.com/title-contract"),
+            Some("https://example.com/title-contract#final"),
+        ),
+        (
+            "get_final_url",
+            serde_json::json!({
+                "kind": "get_final_url",
+                "url": "https://example.com/final-contract",
+                "timeout_seconds": 7,
+                "network_policy_json": {"mode": "required_proxy", "proxy_id": "proxy-browser-contract-final"}
+            }),
+            None,
+            None,
+            None,
+            None,
+            Some("Fake title for https://example.com/final-contract"),
+            Some("https://example.com/final-contract#final"),
+        ),
+        (
+            "extract_text",
+            serde_json::json!({
+                "kind": "extract_text",
+                "url": "https://example.com/text-contract",
+                "timeout_seconds": 7,
+                "network_policy_json": {"mode": "required_proxy", "proxy_id": "proxy-browser-contract-text"}
+            }),
+            Some("content_preview"),
+            Some("text/plain"),
+            Some("extract_text"),
+            Some(true),
+            Some("Fake title for https://example.com/text-contract"),
+            Some("https://example.com/text-contract#final"),
+        ),
+    ];
+
+    for (kind, payload, preview_key, expected_content_kind, expected_source_action, expected_content_ready, expected_title, expected_final_url) in cases {
+        let db_url = unique_db_url();
+        let (_state, app) = build_test_app(&db_url).await.expect("build app");
+
+        let (_, create_json) = json_response(
+            &app,
+            Request::builder()
+                .method("POST")
+                .uri("/tasks")
+                .header("content-type", "application/json")
+                .body(Body::from(payload.to_string()))
+                .expect("request"),
+        )
+        .await;
+        let task_id = create_json.get("id").and_then(|v| v.as_str()).expect("task id").to_string();
+        let task_json = wait_for_terminal_status(&app, &task_id).await;
+
+        let (status, runs_json) = json_response(
+            &app,
+            Request::builder().uri(format!("/tasks/{task_id}/runs")).body(Body::empty()).expect("request"),
+        ).await;
+        assert_eq!(status, StatusCode::OK, "kind={kind}");
+        let runs = runs_json.as_array().expect("runs array");
+        assert!(!runs.is_empty(), "kind={kind}");
+        let run = &runs[0];
+
+        assert_eq!(run.get("title"), task_json.get("title"), "kind={kind}");
+        assert_eq!(run.get("final_url"), task_json.get("final_url"), "kind={kind}");
+        assert_eq!(run.get("content_preview"), task_json.get("content_preview"), "kind={kind}");
+        assert_eq!(run.get("content_length"), task_json.get("content_length"), "kind={kind}");
+        assert_eq!(run.get("content_truncated"), task_json.get("content_truncated"), "kind={kind}");
+        assert_eq!(run.get("content_kind"), task_json.get("content_kind"), "kind={kind}");
+        assert_eq!(run.get("content_source_action"), task_json.get("content_source_action"), "kind={kind}");
+        assert_eq!(run.get("content_ready"), task_json.get("content_ready"), "kind={kind}");
+
+        assert_eq!(task_json.get("content_kind").and_then(|v| v.as_str()), expected_content_kind, "kind={kind}");
+        assert_eq!(task_json.get("content_source_action").and_then(|v| v.as_str()), expected_source_action, "kind={kind}");
+        assert_eq!(task_json.get("content_ready").and_then(|v| v.as_bool()), expected_content_ready, "kind={kind}");
+        assert_eq!(task_json.get("title").and_then(|v| v.as_str()), expected_title, "kind={kind}");
+        assert_eq!(task_json.get("final_url").and_then(|v| v.as_str()), expected_final_url, "kind={kind}");
+
+        match preview_key {
+            Some("content_preview") => assert!(task_json.get("content_preview").and_then(|v| v.as_str()).map(|v| !v.is_empty()).unwrap_or(false), "kind={kind}"),
+            _ => assert!(task_json.get("content_preview").is_none() || task_json.get("content_preview").is_some_and(|v| v.is_null()), "kind={kind}"),
+        }
+    }
 }
 
 #[tokio::test]
@@ -2975,6 +3090,10 @@ async fn status_latest_execution_summaries_include_selection_decision_artifact()
     ).await;
     assert_eq!(status, StatusCode::OK);
     let latest = json.get("latest_execution_summaries").and_then(|v| v.as_array()).expect("latest_execution_summaries");
+    let latest_tasks = json.get("latest_tasks").and_then(|v| v.as_array()).expect("latest_tasks");
+    let latest_browser_tasks = json.get("latest_browser_tasks").and_then(|v| v.as_array()).expect("latest_browser_tasks");
+    assert!(!latest_tasks.is_empty());
+    assert!(!latest_browser_tasks.is_empty());
     let selection = latest.iter().find(|item| item.get("title").and_then(|v| v.as_str()) == Some("proxy selection decision")).expect("selection decision artifact");
     let summary = selection.get("summary").and_then(|v| v.as_str()).unwrap_or("");
     assert!(summary.contains("this proxy stayed ahead by"));
@@ -3076,6 +3195,38 @@ async fn status_latest_execution_summaries_prioritize_error_over_info() {
     assert_eq!(latest[0].get("severity").and_then(|v| v.as_str()), Some("error"));
     assert_eq!(latest[0].get("task_id").and_then(|v| v.as_str()), Some(fail_task_id.as_str()));
     assert_eq!(latest[0].get("key").and_then(|v| v.as_str()), Some("verify_proxy.execution"));
+}
+
+#[tokio::test]
+async fn status_tracks_browser_ready_tasks_separately_from_latest_tasks() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    sqlx::query(
+        r#"INSERT INTO tasks (id, kind, status, input_json, network_policy_json, fingerprint_profile_json, priority, created_at, queued_at, started_at, finished_at, runner_id, heartbeat_at, result_json, error_message)
+           VALUES
+           ('task-status-browser-visible', 'get_title', 'succeeded', '{}', NULL, NULL, 0, '3', '3', '3', '3', NULL, NULL, '{"title":"Visible title","final_url":"https://example.com/visible"}', NULL),
+           ('task-status-generic-newer', 'verify_proxy', 'failed', '{}', NULL, NULL, 0, '4', '4', '4', '4', NULL, NULL, '{"error_kind":"timeout"}', 'boom')"#,
+    )
+    .execute(&state.db)
+    .await
+    .expect("insert mixed tasks");
+
+    let (status, json) = json_response(
+        &app,
+        Request::builder()
+            .uri("/status?limit=10&offset=0")
+            .body(Body::empty())
+            .expect("request"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    let latest_tasks = json.get("latest_tasks").and_then(|v| v.as_array()).expect("latest tasks");
+    let latest_browser_tasks = json.get("latest_browser_tasks").and_then(|v| v.as_array()).expect("latest browser tasks");
+    assert!(latest_tasks.iter().any(|task| task.get("id").and_then(|v| v.as_str()) == Some("task-status-generic-newer")));
+    assert!(latest_browser_tasks.iter().any(|task| task.get("id").and_then(|v| v.as_str()) == Some("task-status-browser-visible")));
+    assert!(!latest_browser_tasks.iter().any(|task| task.get("id").and_then(|v| v.as_str()) == Some("task-status-generic-newer")));
 }
 
 #[tokio::test]
