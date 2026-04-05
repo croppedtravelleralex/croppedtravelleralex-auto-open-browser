@@ -5,6 +5,7 @@ use axum::{
 };
 use std::{net::SocketAddr, time::{Instant, SystemTime, UNIX_EPOCH}};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -28,7 +29,7 @@ use super::{
     PaginationQuery, ProxyMetricsResponse, ProxyResponse, ProxySelectionExplainResponse, ProxySmokeResponse, ProxyTrustCacheCheckResponse, ProxyTrustCacheMaintenanceResponse, ProxyTrustCacheRepairBatchResponse, ProxyTrustCacheRepairResponse, ProxyTrustCacheScanItem, ProxyTrustCacheScanQuery, ProxyTrustCacheScanResponse, ProxyVerifyBatchProviderSummary, ProxyVerifyBatchRequest, ProxyVerifyBatchResponse, ProxyVerifyResponse, RetryTaskResponse, VerifyBatchListQuery, VerifyBatchResponse, VerifyMetricsResponse,
     RunResponse, StatusResponse, TaskResponse, TaskStatusCounts, WorkerStatusResponse,
     },
-    explainability::{build_task_explainability, enrich_summary_artifacts, latest_execution_summaries},
+    explainability::{build_task_explainability, content_bool_field, content_i64_field, content_string_field, enrich_summary_artifacts, latest_execution_summaries},
 };
 
 fn perf_probe_enabled() -> bool {
@@ -721,6 +722,7 @@ pub async fn status(
     let latest_tasks: Vec<TaskResponse> = rows
         .into_iter()
         .map(|(id, kind, status, priority, fingerprint_profile_id, fingerprint_profile_version, result_json, started_at, finished_at)| {
+            let parsed = result_json.as_deref().and_then(|raw| serde_json::from_str::<Value>(raw).ok());
             let explainability = build_task_explainability(
                 fingerprint_profile_id.as_deref(),
                 fingerprint_profile_version,
@@ -743,6 +745,14 @@ pub async fn status(
                 identity_network_explain: explainability.identity_network_explain,
                 winner_vs_runner_up_diff: explainability.winner_vs_runner_up_diff,
                 summary_artifacts: explainability.summary_artifacts,
+                title: content_string_field(parsed.as_ref(), "title"),
+                final_url: content_string_field(parsed.as_ref(), "final_url"),
+                content_preview: content_string_field(parsed.as_ref(), "content_preview"),
+                content_length: content_i64_field(parsed.as_ref(), "content_length"),
+                content_truncated: content_bool_field(parsed.as_ref(), "content_truncated"),
+                content_kind: content_string_field(parsed.as_ref(), "content_kind"),
+                content_source_action: content_string_field(parsed.as_ref(), "content_source_action"),
+                content_ready: content_bool_field(parsed.as_ref(), "content_ready"),
                 id,
                 kind,
                 status,
@@ -1143,6 +1153,14 @@ fn create_task_response_from_payload(
             fingerprint_runtime_explain: None,
             identity_network_explain: None,
             winner_vs_runner_up_diff: None,
+            title: None,
+            final_url: None,
+            content_preview: None,
+            content_length: None,
+            content_truncated: None,
+            content_kind: None,
+            content_source_action: None,
+            content_ready: None,
         }),
     )
 }
@@ -1347,6 +1365,7 @@ pub async fn get_task(
 
     match row {
         Some((id, kind, status, priority, fingerprint_profile_id, fingerprint_profile_version, result_json, started_at, finished_at)) => {
+            let parsed = result_json.as_deref().and_then(|raw| serde_json::from_str::<Value>(raw).ok());
             let explainability = build_task_explainability(
                 fingerprint_profile_id.as_deref(),
                 fingerprint_profile_version,
@@ -1369,6 +1388,14 @@ pub async fn get_task(
                 identity_network_explain: explainability.identity_network_explain,
                 winner_vs_runner_up_diff: explainability.winner_vs_runner_up_diff,
                 summary_artifacts: explainability.summary_artifacts,
+                title: content_string_field(parsed.as_ref(), "title"),
+                final_url: content_string_field(parsed.as_ref(), "final_url"),
+                content_preview: content_string_field(parsed.as_ref(), "content_preview"),
+                content_length: content_i64_field(parsed.as_ref(), "content_length"),
+                content_truncated: content_bool_field(parsed.as_ref(), "content_truncated"),
+                content_kind: content_string_field(parsed.as_ref(), "content_kind"),
+                content_source_action: content_string_field(parsed.as_ref(), "content_source_action"),
+                content_ready: content_bool_field(parsed.as_ref(), "content_ready"),
                 id,
                 kind,
                 status,
@@ -1419,6 +1446,7 @@ pub async fn get_task_runs(
                         task_status.as_deref(),
                         summary_timestamp.as_deref(),
                     );
+                    let parsed = result_json.as_deref().and_then(|raw| serde_json::from_str::<Value>(raw).ok());
                     RunResponse {
                         id: id.clone(),
                         task_id: task_id.clone(),
@@ -1447,6 +1475,14 @@ pub async fn get_task_runs(
                         fingerprint_runtime_explain: explainability.fingerprint_runtime_explain,
                         identity_network_explain: explainability.identity_network_explain,
                         winner_vs_runner_up_diff: explainability.winner_vs_runner_up_diff,
+                        title: content_string_field(parsed.as_ref(), "title"),
+                        final_url: content_string_field(parsed.as_ref(), "final_url"),
+                        content_preview: content_string_field(parsed.as_ref(), "content_preview"),
+                        content_length: content_i64_field(parsed.as_ref(), "content_length"),
+                        content_truncated: content_bool_field(parsed.as_ref(), "content_truncated"),
+                        content_kind: content_string_field(parsed.as_ref(), "content_kind"),
+                        content_source_action: content_string_field(parsed.as_ref(), "content_source_action"),
+                        content_ready: content_bool_field(parsed.as_ref(), "content_ready"),
                     }
                 },
             )

@@ -1,42 +1,48 @@
-# Findings & Decisions
+# Findings
 
-## Requirements
-- 项目主线遵循 **absolute fingerprint first**。
-- 运行环境按 **Ubuntu 24.04 headless 服务端** 处理，不以 GUI / screenshot / 视觉链路为主线。
-- 性能优化必须成立，但**不能把系统做成伪串行**。
-- 当前默认规则新增：**先分析任务大小，再按大小拆分，最后执行当前最值步骤，并默认减少 token 开销**。
-- 复杂项目推进时，需要保留本地 planning 控制面。
+## Current mainline
+- 当前最值主线已经从“继续扩 browser endpoint”切到“把已有 browser-facing result contract、task/run outward response、fingerprint runtime explainability 收成稳定基线”。
+- fake runner 与 lightpanda runner 的契约差距，已经被显著缩小；这对开发态验证和 API 一致性很重要。
 
-## Research Findings
-- 当前项目已完成：`fingerprint_policy`、`fingerprint_consistency`、budget-aware claiming、budget visibility、concurrency-budget regression tests、`fingerprint_runtime_explain` task-result/API 聚合。
-- `STATUS.md` 当前焦点仍强调 trust score 核心化、verify 慢路径并入主排序、性能治理前置。
-- `TODO.md` 中与当前主线最贴近且未完成的一项是：**将 `proxy_growth` 规则接入选择链路或 explain 输出**。
-- 当前项目已经存在较成熟的 `STATUS / TODO / PROGRESS` 控制面，适合继续做定向推进，而不是重新大面积扫描。
+## Browser-facing contract
+- fake runner 现在已经补齐关键字段：
+  - `requested_action`
+  - `action`
+  - `supported_actions`
+  - `title`
+  - `final_url`
+  - `html_preview/html_length/html_truncated`
+  - `text_preview/text_length/text_truncated`
+  - `content_preview/content_length/content_truncated`
+  - `content_kind`
+  - `content_source_action`
+  - `content_ready`
+- 这意味着 fake runner 不再只是“能跑”，而是已经能承担 browser-facing contract 的开发态基线角色。
 
-## Technical Decisions
-| Decision | Rationale |
-|----------|-----------|
-| 采用 planning-with-files 作为当前主线本地控制面 | 先把跨会话推进稳定下来，再考虑额外执行面 |
-| 当前轮次只定向锁定 `proxy_growth` 接线 | 这是未完成 P0 中最靠近主线价值的一项 |
-| 不先重扫全仓 | 用户已明确要减少 token 开销 |
-| 先用已有 `STATUS / TODO / PROGRESS` 收敛现状 | 这是最便宜的主线确认方式 |
+## Task/Run outward response
+- `TaskResponse` 与 `RunResponse` 已新增 browser-facing outward fields：
+  - `title`
+  - `final_url`
+  - `content_preview`
+  - `content_length`
+  - `content_truncated`
+  - `content_kind`
+  - `content_source_action`
+  - `content_ready`
+- handlers 现在会从 `result_json` 中回填这些字段到 `/tasks/:id`、`/tasks/:id/runs` 与 `status.latest_tasks`。
 
-## Issues Encountered
-| Issue | Resolution |
-|-------|------------|
-| planning 初始化时脚本检查 `taskr` 配置连续出低级错误 | 暂不阻塞主线；先启用本地 planning 控制面，后续再定向检查 taskr |
+## Explainability
+- run-level `fingerprint_runtime_explain.consumption_explain` 之前存在丢失问题。
+- 已在 `src/runner/engine.rs` 中补上兜底逻辑：当 payload 中没有完整 `fingerprint_runtime.consumption_explain` 时，会基于 fingerprint profile 自动生成 consumption explain。
+- 该修复已让原本失败的 `task_runs_expose_run_level_trace_metadata_and_standardized_artifacts` 恢复通过。
 
-## Resources
-- `/root/SelfMadeprojects/lightpanda-automation/STATUS.md`
-- `/root/SelfMadeprojects/lightpanda-automation/TODO.md`
-- `/root/SelfMadeprojects/lightpanda-automation/PROGRESS.md`
-- `/root/SelfMadeprojects/lightpanda-automation/task_plan.md`
-- `/root/SelfMadeprojects/lightpanda-automation/findings.md`
-- `/root/SelfMadeprojects/lightpanda-automation/progress.md`
+## Testing decisions
+- `get_title` 比 `open_page` 更适合作为 outward contract 的 run/task 集成测试样例：
+  - 可以稳定断言 `title`
+  - 也能稳定断言 `final_url`
+  - 同时避免把 `content_kind` 强行写成不稳定预期
+- 当前测试方向应优先锁定“task 与 run outward fields 一致”而不是继续堆更多 endpoint 创建测试。
 
-## Visual/Browser Findings
-- 当前轮没有使用浏览器/视觉检查。
-
----
-*Update this file after every 2 view/browser/search operations*
-*This prevents visual information from being lost*
+## Cleanup direction
+- 当前 `task_plan.md / findings.md / progress.md` 之前被 OpenHands/Aider 编排内容串线污染，已经不适合作为 lightpanda-automation 本线控制面继续使用。
+- 本轮需要把 planning 文件正式切回 lightpanda-automation 当前真实主线，并围绕 browser contract / explainability / commit baseline 继续推进。

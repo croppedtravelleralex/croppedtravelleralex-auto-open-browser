@@ -338,6 +338,14 @@ pub struct TaskResponse {
     pub fingerprint_runtime_explain: Option<FingerprintRuntimeExplain>,
     pub identity_network_explain: Option<IdentityNetworkExplain>,
     pub winner_vs_runner_up_diff: Option<WinnerVsRunnerUpDiff>,
+    pub title: Option<String>,
+    pub final_url: Option<String>,
+    pub content_preview: Option<String>,
+    pub content_length: Option<i64>,
+    pub content_truncated: Option<bool>,
+    pub content_kind: Option<String>,
+    pub content_source_action: Option<String>,
+    pub content_ready: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -361,6 +369,14 @@ pub struct RunResponse {
     pub fingerprint_runtime_explain: Option<FingerprintRuntimeExplain>,
     pub identity_network_explain: Option<IdentityNetworkExplain>,
     pub winner_vs_runner_up_diff: Option<WinnerVsRunnerUpDiff>,
+    pub title: Option<String>,
+    pub final_url: Option<String>,
+    pub content_preview: Option<String>,
+    pub content_length: Option<i64>,
+    pub content_truncated: Option<bool>,
+    pub content_kind: Option<String>,
+    pub content_source_action: Option<String>,
+    pub content_ready: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

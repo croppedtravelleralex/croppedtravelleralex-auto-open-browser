@@ -9,6 +9,51 @@ use crate::{
 
 pub struct FakeRunner;
 
+fn simulated_action(task: &RunnerTask) -> &'static str {
+    match task.kind.as_str() {
+        "get_html" => "get_html",
+        "get_title" => "get_title",
+        "get_final_url" => "get_final_url",
+        "extract_text" => "extract_text",
+        _ => "open_page",
+    }
+}
+
+fn simulated_content_fields(action: &str, url: Option<&str>) -> (Value, Value, Value, Value, Value, Value, Value) {
+    match action {
+        "get_html" => {
+            let html = format!("<html><body><main data-url=\"{}\">fake html content</main></body></html>", url.unwrap_or("https://example.com"));
+            let len = html.chars().count() as u64;
+            (
+                json!(html.clone()),
+                json!(len),
+                json!(false),
+                json!(html),
+                json!(len),
+                json!(false),
+                json!("text/html"),
+            )
+        }
+        "extract_text" => {
+            let text = match url {
+                Some(value) => format!("fake extracted text from {value}"),
+                None => "fake extracted text".to_string(),
+            };
+            let len = text.chars().count() as u64;
+            (
+                Value::Null,
+                Value::Null,
+                Value::Null,
+                json!(text.clone()),
+                json!(len),
+                json!(false),
+                json!("text/plain"),
+            )
+        }
+        _ => (Value::Null, Value::Null, Value::Null, Value::Null, Value::Null, Value::Null, Value::Null),
+    }
+}
+
 fn result_payload(
     ok: bool,
     status: &str,
@@ -24,6 +69,7 @@ fn result_payload(
     let timeout_seconds = task
         .timeout_seconds
         .and_then(|value| u64::try_from(value).ok());
+    let action = simulated_action(task);
 
     let fingerprint_profile = task.fingerprint_profile.as_ref().map(|profile| json!({
         "id": profile.id,
@@ -41,10 +87,24 @@ fn result_payload(
         "score": proxy.score,
         "resolution_status": proxy.resolution_status,
     }));
+    let title = url.as_ref().map(|value| format!("Fake title for {value}"));
+    let final_url = url.as_ref().map(|value| format!("{value}#final"));
+    let (html_preview, html_length, html_truncated, content_preview, content_length, content_truncated, content_kind) =
+        simulated_content_fields(action, url.as_deref());
+    let content_source_action = match action {
+        "get_html" | "extract_text" => json!(action),
+        _ => Value::Null,
+    };
+    let content_ready = match action {
+        "get_html" | "extract_text" => json!(true),
+        _ => Value::Null,
+    };
 
     json!({
         "runner": "fake",
-        "action": "simulate",
+        "requested_action": action,
+        "action": action,
+        "supported_actions": ["open_page", "fetch", "get_html", "get_title", "get_final_url", "extract_text"],
         "ok": ok,
         "status": status,
         "error_kind": error_kind,
@@ -56,6 +116,25 @@ fn result_payload(
         "timeout_seconds": timeout_seconds,
         "fingerprint_profile": fingerprint_profile,
         "proxy": proxy,
+        "title": title,
+        "final_url": final_url,
+        "html_preview": html_preview,
+        "html_length": html_length,
+        "html_truncated": html_truncated,
+        "text_preview": if action == "extract_text" { content_preview.clone() } else { Value::Null },
+        "text_length": if action == "extract_text" { content_length.clone() } else { Value::Null },
+        "text_truncated": if action == "extract_text" { content_truncated.clone() } else { Value::Null },
+        "content_preview": content_preview,
+        "content_length": content_length,
+        "content_truncated": content_truncated,
+        "content_encoding": match action {
+            "get_html" => json!("html"),
+            "extract_text" => json!("plain"),
+            _ => Value::Null,
+        },
+        "content_source_action": content_source_action,
+        "content_ready": content_ready,
+        "content_kind": content_kind,
         "bin": Value::Null,
         "exit_code": Value::Null,
         "stdout_preview": Value::Null,
@@ -85,7 +164,7 @@ fn build_result(
             source: "runner.fake".to_string(),
             severity: if is_error { crate::runner::types::SummaryArtifactSeverity::Error } else { crate::runner::types::SummaryArtifactSeverity::Info },
             title: format!("{} execution summary", task.kind),
-            summary: format!("kind={} status={} message={}", task.kind, status, message),
+            summary: format!("kind={} action={} status={} message={}", task.kind, simulated_action(task), status, message),
         }],
     }
 }
@@ -152,7 +231,8 @@ mod tests {
 
         assert!(matches!(result.status, RunnerOutcomeStatus::Succeeded));
         assert_eq!(json.get("runner").and_then(|v| v.as_str()), Some("fake"));
-        assert_eq!(json.get("action").and_then(|v| v.as_str()), Some("simulate"));
+        assert_eq!(json.get("requested_action").and_then(|v| v.as_str()), Some("open_page"));
+        assert_eq!(json.get("action").and_then(|v| v.as_str()), Some("open_page"));
         assert_eq!(json.get("ok").and_then(|v| v.as_bool()), Some(true));
         assert_eq!(json.get("status").and_then(|v| v.as_str()), Some(RUN_STATUS_SUCCEEDED));
         assert_eq!(json.get("task_id").and_then(|v| v.as_str()), Some("task-fake-success"));
@@ -165,6 +245,50 @@ mod tests {
         assert!(json.get("exit_code").is_some());
         assert!(json.get("stdout_preview").is_some());
         assert!(json.get("stderr_preview").is_some());
+    }
+
+    #[tokio::test]
+    async fn execute_extract_text_exposes_content_contract() {
+        let runner = FakeRunner;
+        let task = RunnerTask {
+            task_id: "task-fake-extract-text".to_string(),
+            attempt: 1,
+            kind: "extract_text".to_string(),
+            payload: json!({"url": "https://example.com/article"}),
+            timeout_seconds: Some(5),
+            fingerprint_profile: None,
+            proxy: None,
+        };
+
+        let result = runner.execute(task).await;
+        let json = result.result_json.expect("result json");
+
+        assert!(matches!(result.status, RunnerOutcomeStatus::Succeeded));
+        assert_eq!(json.get("requested_action").and_then(|v| v.as_str()), Some("extract_text"));
+        assert_eq!(json.get("action").and_then(|v| v.as_str()), Some("extract_text"));
+        assert_eq!(json.get("content_kind").and_then(|v| v.as_str()), Some("text/plain"));
+        assert_eq!(json.get("content_source_action").and_then(|v| v.as_str()), Some("extract_text"));
+        assert_eq!(json.get("content_ready").and_then(|v| v.as_bool()), Some(true));
+        assert!(json.get("content_preview").and_then(|v| v.as_str()).unwrap_or("").contains("fake extracted text"));
+        assert!(json.get("text_length").and_then(|v| v.as_u64()).unwrap_or(0) > 0);
+    }
+
+    #[tokio::test]
+    async fn execute_title_and_final_url_expose_browser_metadata() {
+        let runner = FakeRunner;
+        let task = RunnerTask {
+            task_id: "task-fake-title".to_string(),
+            attempt: 1,
+            kind: "get_title".to_string(),
+            payload: json!({"url": "https://example.com/page"}),
+            timeout_seconds: Some(5),
+            fingerprint_profile: None,
+            proxy: None,
+        };
+
+        let json = runner.execute(task).await.result_json.expect("result json");
+        assert_eq!(json.get("title").and_then(|v| v.as_str()), Some("Fake title for https://example.com/page"));
+        assert_eq!(json.get("final_url").and_then(|v| v.as_str()), Some("https://example.com/page#final"));
     }
 
     #[tokio::test]

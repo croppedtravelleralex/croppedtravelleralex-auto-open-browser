@@ -3679,10 +3679,32 @@ async fn task_runs_expose_run_level_trace_metadata_and_standardized_artifacts() 
         .await
         .expect("insert proxies");
 
+    let profile_payload = serde_json::json!({
+        "id": "fp-run-trace",
+        "name": "Run Trace Profile",
+        "profile_json": {
+            "timezone": "Asia/Shanghai",
+            "locale": "zh-CN",
+            "unsupported_blob": {"k": "v"}
+        }
+    });
+    let (profile_status, _) = json_response(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/fingerprint-profiles")
+            .header("content-type", "application/json")
+            .body(Body::from(profile_payload.to_string()))
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(profile_status, StatusCode::CREATED);
+
     let payload = serde_json::json!({
-        "kind": "open_page",
+        "kind": "get_title",
         "url": "https://example.com/run-trace",
         "timeout_seconds": 5,
+        "fingerprint_profile_id": "fp-run-trace",
         "network_policy_json": {"mode": "required_proxy", "provider": "pool-run-trace", "region": "us-east"}
     });
     let (_, create_json) = json_response(&app, Request::builder().method("POST").uri("/tasks").header("content-type", "application/json").body(Body::from(payload.to_string())).expect("request")).await;
@@ -3719,6 +3741,17 @@ async fn task_runs_expose_run_level_trace_metadata_and_standardized_artifacts() 
     assert_eq!(run.get("winner_vs_runner_up_diff"), task_json.get("winner_vs_runner_up_diff"));
     assert_eq!(run.get("fingerprint_runtime_explain").and_then(|v| v.get("consumption_explain")).and_then(|v| v.get("consumption_status")).and_then(|v| v.as_str()), Some("partially_consumed"));
     assert_eq!(task_json.get("fingerprint_runtime_explain").and_then(|v| v.get("consumption_explain")).and_then(|v| v.get("ignored_count")).and_then(|v| v.as_i64()), Some(1));
+    assert_eq!(task_json.get("title").and_then(|v| v.as_str()), Some("Fake title for https://example.com/run-trace"));
+    assert_eq!(task_json.get("final_url").and_then(|v| v.as_str()), Some("https://example.com/run-trace#final"));
+    assert_eq!(task_json.get("content_kind").and_then(|v| v.as_str()), None);
+    assert_eq!(run.get("title").and_then(|v| v.as_str()), task_json.get("title").and_then(|v| v.as_str()));
+    assert_eq!(run.get("final_url").and_then(|v| v.as_str()), task_json.get("final_url").and_then(|v| v.as_str()));
+    assert_eq!(run.get("content_preview"), task_json.get("content_preview"));
+    assert_eq!(run.get("content_length"), task_json.get("content_length"));
+    assert_eq!(run.get("content_truncated"), task_json.get("content_truncated"));
+    assert_eq!(run.get("content_kind"), task_json.get("content_kind"));
+    assert_eq!(run.get("content_source_action"), task_json.get("content_source_action"));
+    assert_eq!(run.get("content_ready"), task_json.get("content_ready"));
 
     let task_artifacts = task_json.get("summary_artifacts").and_then(|v| v.as_array()).expect("task artifacts");
     let selection_artifact = task_artifacts.iter().find(|item| item.get("key").and_then(|v| v.as_str()) == Some("proxy.selection.decision")).expect("selection artifact");

@@ -117,6 +117,67 @@ fn build_fingerprint_runtime_explain_json(
         .or_else(|| task_payload.get("region").and_then(|v| v.as_str()))
         .or_else(|| task_payload.get("network_policy_json").and_then(|v| v.get("region")).and_then(|v| v.as_str()));
 
+    let consumption_explain = task_payload
+        .get("fingerprint_runtime")
+        .and_then(|v| v.get("consumption_explain"))
+        .cloned()
+        .or_else(|| {
+            fingerprint_profile.map(|profile| {
+                let declared_fields = profile
+                    .profile_json
+                    .as_object()
+                    .map(|obj| {
+                        obj.keys()
+                            .filter(|key| *key != "id" && *key != "name" && *key != "version")
+                            .cloned()
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                let resolved_fields = declared_fields
+                    .iter()
+                    .filter(|field| matches!(field.as_str(), "timezone" | "locale" | "accept_language" | "headers"))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let applied_fields = resolved_fields.clone();
+                let ignored_fields = declared_fields
+                    .iter()
+                    .filter(|field| !resolved_fields.iter().any(|resolved| resolved == *field))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let consumption_status = if declared_fields.is_empty() {
+                    "metadata_only"
+                } else if applied_fields.is_empty() {
+                    "ignored_only"
+                } else if ignored_fields.is_empty() {
+                    "fully_consumed"
+                } else {
+                    "partially_consumed"
+                };
+                json!({
+                    "declared_fields": declared_fields,
+                    "resolved_fields": resolved_fields,
+                    "applied_fields": applied_fields,
+                    "ignored_fields": ignored_fields,
+                    "declared_count": declared_fields.len(),
+                    "resolved_count": resolved_fields.len(),
+                    "applied_count": applied_fields.len(),
+                    "ignored_count": ignored_fields.len(),
+                    "consumption_status": consumption_status,
+                    "partial_support_warning": (!ignored_fields.is_empty()).then_some("some declared fingerprint fields were not consumed by the current lightpanda runner")
+                })
+            })
+        });
+    let consumption_status = task_payload
+        .get("fingerprint_runtime")
+        .and_then(|v| v.get("consumption_status"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .or_else(|| consumption_explain.as_ref().and_then(|v| v.get("consumption_status")).and_then(|v| v.as_str()).map(str::to_string));
+    let warning = task_payload
+        .get("fingerprint_runtime")
+        .and_then(|v| v.get("warning"))
+        .cloned();
+
     let (budget_tag, consistency) = match fingerprint_profile {
         Some(profile) => {
             let budget_tag = match fingerprint_perf_budget_tag_from_profile_json(Some(&profile.profile_json.to_string())) {
@@ -144,6 +205,9 @@ fn build_fingerprint_runtime_explain_json(
     json!({
         "fingerprint_budget_tag": budget_tag,
         "fingerprint_consistency": consistency,
+        "consumption_status": consumption_status,
+        "warning": warning,
+        "consumption_explain": consumption_explain,
     })
 }
 

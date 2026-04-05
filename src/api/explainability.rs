@@ -23,7 +23,7 @@ fn perf_probe_log(event: &str, fields: &[(&str, String)]) {
     }
 }
 
-use super::dto::{CandidateRankPreviewItem, FingerprintRuntimeExplain, IdentityNetworkExplain, ProxySelectionExplain, SummaryArtifactResponse, TaskResponse, WinnerVsRunnerUpDiff};
+use super::dto::{CandidateRankPreviewItem, ConsumptionExplain, FingerprintRuntimeExplain, IdentityNetworkExplain, ProxySelectionExplain, SummaryArtifactResponse, TaskResponse, WinnerVsRunnerUpDiff};
 
 fn parse_result_json(result_json: Option<&str>) -> Option<Value> {
     result_json.and_then(|raw| serde_json::from_str::<Value>(raw).ok())
@@ -114,10 +114,39 @@ fn selection_explain_from_parsed(parsed: Option<&Value>) -> Option<ProxySelectio
 }
 
 fn fingerprint_runtime_explain_from_parsed(parsed: Option<&Value>) -> Option<FingerprintRuntimeExplain> {
-    parsed?
+    let parsed = parsed?;
+    if let Some(value) = parsed.get("fingerprint_runtime_explain").cloned() {
+        if let Ok(explain) = serde_json::from_value::<FingerprintRuntimeExplain>(value) {
+            return Some(explain);
+        }
+    }
+
+    let budget_tag = parsed
         .get("fingerprint_runtime_explain")
+        .and_then(|v| v.get("fingerprint_budget_tag"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let fingerprint_consistency = parsed
+        .get("fingerprint_runtime_explain")
+        .and_then(|v| v.get("fingerprint_consistency"))
         .cloned()
-        .and_then(|value| serde_json::from_value::<FingerprintRuntimeExplain>(value).ok())
+        .and_then(|v| serde_json::from_value(v).ok());
+
+    let consumption_explain = parsed
+        .get("fingerprint_runtime_explain")
+        .and_then(|v| v.get("consumption_explain").cloned())
+        .or_else(|| parsed.get("fingerprint_runtime").and_then(|v| v.get("consumption_explain").cloned()))
+        .and_then(|v| serde_json::from_value::<ConsumptionExplain>(v).ok());
+
+    if budget_tag.is_none() && fingerprint_consistency.is_none() && consumption_explain.is_none() {
+        return None;
+    }
+
+    Some(FingerprintRuntimeExplain {
+        fingerprint_budget_tag: budget_tag,
+        fingerprint_consistency,
+        consumption_explain,
+    })
 }
 
 fn trust_score_total_from_parsed(parsed: Option<&Value>) -> Option<i64> {
@@ -135,6 +164,25 @@ fn candidate_rank_preview_from_parsed(parsed: Option<&Value>) -> Vec<CandidateRa
         .and_then(|value| value.get("candidate_rank_preview").cloned())
         .and_then(|value| serde_json::from_value::<Vec<CandidateRankPreviewItem>>(value).ok())
         .unwrap_or_default()
+}
+
+pub fn content_string_field(parsed: Option<&Value>, key: &str) -> Option<String> {
+    parsed?
+        .get(key)
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string())
+}
+
+pub fn content_i64_field(parsed: Option<&Value>, key: &str) -> Option<i64> {
+    parsed?
+        .get(key)
+        .and_then(|value| value.as_i64())
+}
+
+pub fn content_bool_field(parsed: Option<&Value>, key: &str) -> Option<bool> {
+    parsed?
+        .get(key)
+        .and_then(|value| value.as_bool())
 }
 
 #[derive(Debug, Clone)]
@@ -867,6 +915,14 @@ mod tests {
                 fingerprint_runtime_explain: None,
                 identity_network_explain: None,
                 winner_vs_runner_up_diff: None,
+                title: None,
+                final_url: None,
+                content_preview: None,
+                content_length: None,
+                content_truncated: None,
+                content_kind: None,
+                content_source_action: None,
+                content_ready: None,
             },
             TaskResponse {
                 id: "task-2".to_string(),
@@ -918,6 +974,14 @@ mod tests {
                 fingerprint_runtime_explain: None,
                 identity_network_explain: None,
                 winner_vs_runner_up_diff: None,
+                title: None,
+                final_url: None,
+                content_preview: None,
+                content_length: None,
+                content_truncated: None,
+                content_kind: None,
+                content_source_action: None,
+                content_ready: None,
             },
         ];
 
