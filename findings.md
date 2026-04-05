@@ -1,11 +1,11 @@
 # Findings
 
 ## Current mainline
-- 当前最值主线已经从“继续扩 browser endpoint”切到“把已有 browser-facing result contract、task/run outward response、fingerprint runtime explainability 收成稳定基线”。
-- fake runner 与 lightpanda runner 的契约差距，已经被显著缩小；这对开发态验证和 API 一致性很重要。
+- 当前 `lightpanda-automation` 最值主线已经从“继续扩 browser endpoint”切到“把 browser-facing contract、explainability、status 展示语义与排序规则收成稳定产品面”。
+- 这条线现在已经不是底层拼装，而是进入“展示层产品化”的后半段。
 
 ## Browser-facing contract
-- fake runner 现在已经补齐关键字段：
+- fake runner 已经补齐关键 browser-facing 字段，能承担开发态基线角色：
   - `requested_action`
   - `action`
   - `supported_actions`
@@ -17,32 +17,41 @@
   - `content_kind`
   - `content_source_action`
   - `content_ready`
-- 这意味着 fake runner 不再只是“能跑”，而是已经能承担 browser-facing contract 的开发态基线角色。
-
-## Task/Run outward response
-- `TaskResponse` 与 `RunResponse` 已新增 browser-facing outward fields：
-  - `title`
-  - `final_url`
-  - `content_preview`
-  - `content_length`
-  - `content_truncated`
-  - `content_kind`
-  - `content_source_action`
-  - `content_ready`
-- handlers 现在会从 `result_json` 中回填这些字段到 `/tasks/:id`、`/tasks/:id/runs` 与 `status.latest_tasks`。
+- `TaskResponse` 与 `RunResponse` 也已外露 browser-facing 字段，使 task/run 视图与 runner 结果更一致。
 
 ## Explainability
-- run-level `fingerprint_runtime_explain.consumption_explain` 之前存在丢失问题。
-- 已在 `src/runner/engine.rs` 中补上兜底逻辑：当 payload 中没有完整 `fingerprint_runtime.consumption_explain` 时，会基于 fingerprint profile 自动生成 consumption explain。
-- 该修复已让原本失败的 `task_runs_expose_run_level_trace_metadata_and_standardized_artifacts` 恢复通过。
+- run-level `fingerprint_runtime_explain.consumption_explain` 丢失问题已修复。
+- `src/api/explainability.rs` 里新增了 `browser result summary`，浏览器结果开始进入 summary artifact 体系，不再只是散落字段。
+- explainability 现在已能同时覆盖：
+  - selection decision
+  - identity/network summary
+  - proxy growth assessment
+  - browser result summary
 
-## Testing decisions
-- `get_title` 比 `open_page` 更适合作为 outward contract 的 run/task 集成测试样例：
-  - 可以稳定断言 `title`
-  - 也能稳定断言 `final_url`
-  - 同时避免把 `content_kind` 强行写成不稳定预期
-- 当前测试方向应优先锁定“task 与 run outward fields 一致”而不是继续堆更多 endpoint 创建测试。
+## Status semantics
+- `/status` 曾出现语义漂移风险：`latest_tasks` 一度被拿来承载“最近 browser-ready 任务”，名字和真实含义不一致。
+- 该问题已通过拆分字段解决：
+  - `latest_tasks`：保留通用最近任务视图
+  - `latest_browser_tasks`：单独承载 browser-ready 展示视图
+- 这一拆分显著降低了后续状态页扩展时的语义冲突风险。
 
-## Cleanup direction
-- 当前 `task_plan.md / findings.md / progress.md` 之前被 OpenHands/Aider 编排内容串线污染，已经不适合作为 lightpanda-automation 本线控制面继续使用。
-- 本轮需要把 planning 文件正式切回 lightpanda-automation 当前真实主线，并围绕 browser contract / explainability / commit baseline 继续推进。
+## Ordering rules
+- `latest_browser_tasks` 现在不是简单过滤，而是有明确排序策略：
+  1. `content_ready=true` 优先
+  2. 可读性更强（`title` / `content_preview` 更完整）优先
+  3. 更新更近优先
+- 该排序规则已通过 unit + integration coverage 锁住，包括混合场景：
+  - content-ready vs readable-title
+  - readable-title vs only-final-url
+
+## Commits landed on this line
+- `f29844f` — `feat: harden browser contract and explainability`
+- `d6eab84` — `feat: split latest browser tasks in status`
+- `148a520` — `feat: prioritize browser-ready status results`
+- `3b5e79f` — `test: harden browser status ordering rules`
+
+## Current product judgment
+- 这条 browser/status 展示主线已经接近稳定完成，不应再在低收益的细枝末节上过度打磨。
+- 当前更值的后续方向有两个：
+  1. 把 `latest_browser_tasks` 投影成更轻、更像产品结果卡片的 shape
+  2. 进入下一条更有价值的新主线，而不是继续停留在排序细节上

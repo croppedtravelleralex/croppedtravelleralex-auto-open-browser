@@ -1,45 +1,53 @@
 # Task Plan
 
 ## Goal
-把当前 lightpanda-automation 这一轮 browser-facing contract / explainability / runner 对齐改动收成一条干净主线，并建立可回归的测试与提交基线。
+把 lightpanda-automation 当前这轮 browser/status 展示主线收成稳定、清晰、可持续演进的一段产品化基线，而不是继续停留在字段拼装阶段。
 
 ## Current Status
-- Phase 1 — fake runner browser contract alignment: complete
-- Phase 2 — run/task content field exposure: in_progress
-- Phase 3 — fingerprint runtime explainability backfill: complete
-- Phase 4 — planning cleanup + commit baseline: pending
+- Phase 1 — browser-facing contract hardening: complete
+- Phase 2 — explainability + browser result summary: complete
+- Phase 3 — status semantics split (`latest_tasks` / `latest_browser_tasks`): complete
+- Phase 4 — browser-status ordering rules + regression protection: complete
+- Phase 5 — docs sync + next-step productization: in_progress
 
 ## Phases
 
-### Phase 1 — Fake runner contract alignment
-- [x] 对齐 `requested_action` / `action` / `supported_actions`
-- [x] 对齐 `title` / `final_url`
-- [x] 对齐 `content_preview` / `content_length` / `content_kind`
-- [x] 补充 fake runner 定向测试
+### Phase 1 — Browser-facing contract
+- [x] 对齐 fake runner 与 lightpanda runner 的 browser-facing result contract
+- [x] 给 task/run outward response 增加 `title` / `final_url` / `content_*`
+- [x] 建立 task/run outward contract integration coverage
 
-### Phase 2 — Task/Run API outward contract
-- [x] 给 `TaskResponse` / `RunResponse` 增加 browser-facing content fields
-- [x] 在 handlers 中从 `result_json` 回填字段
-- [ ] 补更系统的 integration consistency assertions
-- [ ] 再跑一轮定向回归
-
-### Phase 3 — Fingerprint runtime explainability
+### Phase 2 — Explainability
 - [x] 修复 run-level `consumption_explain` 丢失
-- [x] 为 `engine` 增加基于 fingerprint profile 的兜底 explainability 生成
-- [ ] 补一条更贴近 browser-facing task 的 explainability 回归
+- [x] 增加 `browser result summary` 作为 explainability artifact
+- [x] 让 browser-facing 字段开始进入可读摘要层
 
-### Phase 4 — Cleanup and baseline commit
-- [ ] 清理串线的 planning 文件
-- [ ] 更新 findings / progress 为当前真实主线
-- [ ] 跑通过定向测试集合
-- [ ] 提交一轮稳定 commit
+### Phase 3 — Status semantics cleanup
+- [x] 识别 `latest_tasks` 语义漂移风险
+- [x] 将 `/status` 拆分为 `latest_tasks` 与 `latest_browser_tasks`
+- [x] 保留通用最近任务视图，同时单独提供 browser-ready 视图
+
+### Phase 4 — Ordering rules and tests
+- [x] 为 `latest_browser_tasks` 增加排序规则
+- [x] 优先 `content_ready=true`
+- [x] 其后按可读性（`title` / `content_preview`）排序
+- [x] 再按新鲜度排序
+- [x] 用 integration / unit tests 锁住混合场景排序行为
+
+### Phase 5 — Productization next steps
+- [x] 同步 `progress.md`
+- [x] 同步 `task_plan.md`
+- [ ] 同步 `findings.md`
+- [ ] 判断是否把 `latest_browser_tasks` 投影为更轻的 browser-summary shape
+- [ ] 评估 status 面板是否还需要更强的人话层展示
 
 ## Key Decisions
-- 当前最值主线不是继续盲扩 endpoint，而是把已有 browser contract、task/run outward response、fingerprint runtime explainability 收成稳定基线。
-- `get_title` 更适合作为 run/task outward contract 测试样例，因为能稳定暴露 `title/final_url`，同时不引入 `content_kind` 的额外变量。
-- planning 文件必须回到 lightpanda-automation 本线，不能继续保留 OpenHands/Aider 串线内容。
+- 当前主线不再是继续扩 endpoint，而是把 browser/status 展示体验收成一个稳定产品面。
+- `latest_tasks` 与 `latest_browser_tasks` 必须分开，不能再混用一个字段承载两种语义。
+- `latest_browser_tasks` 的排序应优先展示“更值得先看”的结果，而不是机械按时间排序。
+- 在当前阶段，继续补测试和语义收口的价值，高于继续堆新字段。
 
 ## Risks
-- run/task outward fields 增加后，旧测试和辅助构造器容易继续漏字段。
-- content field 的外露能力已进入 API 契约层，后续再改字段名会影响面更大。
-- 当前工作树改动较多，若不及时收口 commit，后续继续推进会提高返工风险。
+- `latest_browser_tasks` 未来若继续直接返回完整 `TaskResponse`，可能会把状态面板噪音带高。
+- 排序规则目前已经合理，但如果后续引入更多 browser result 形态，可能需要重新平衡可读性和新鲜度权重。
+- 如果不及时把 findings 一并追平，文档面仍会出现一部分滞后。

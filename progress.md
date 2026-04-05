@@ -22,8 +22,17 @@
 - Recovered the previously failing integration test `task_runs_expose_run_level_trace_metadata_and_standardized_artifacts`.
 - Reframed the integration test to use a browser-facing task shape that better matches the new outward contract assertions.
 - Rewrote planning files so they now reflect the actual lightpanda-automation mainline again.
+- Added `browser result summary` into explainability summary artifacts so browser-facing fields now surface as readable summaries instead of only raw fields.
+- Split `/status` response semantics into both `latest_tasks` and `latest_browser_tasks`, instead of overloading one field with two meanings.
+- Added ordering logic for `latest_browser_tasks` so it now prefers `content_ready=true`, then stronger readability (`title` / `content_preview`), then freshness.
+- Hardened that browser-status ordering with integration coverage for mixed scenarios.
+- Landed the status/browser display-line commits:
+  - `f29844f` — `feat: harden browser contract and explainability`
+  - `d6eab84` — `feat: split latest browser tasks in status`
+  - `148a520` — `feat: prioritize browser-ready status results`
+  - `3b5e79f` — `test: harden browser status ordering rules`
 
 ## Current Focus
-- Finish locking task/run outward fields with tighter integration assertions.
-- Run the small targeted regression pack for fake runner + browser task + run trace.
-- Land a clean baseline commit for this contract/explainability round.
+- Sync planning/docs with the new status/browser display semantics.
+- Decide whether `latest_browser_tasks` should later project to a lighter browser-summary shape.
+- Treat the current status/browser line as largely stabilized and shift future effort toward higher-value product-facing next steps.
