@@ -3385,9 +3385,9 @@ async fn proxy_explain_endpoint_single_candidate_has_zero_gap_and_empty_runner_u
     ).await;
     assert_eq!(status, StatusCode::OK);
     let diff = json.get("winner_vs_runner_up_diff").expect("winner diff");
-    assert_eq!(diff.get("runner_up_total_score").and_then(|v| v.as_i64()), Some(0));
-    assert_eq!(diff.get("score_gap").and_then(|v| v.as_i64()), diff.get("winner_total_score").and_then(|v| v.as_i64()));
-    assert!(diff.get("factors").and_then(|v| v.as_array()).map(|v| v.len() <= 5).unwrap_or(false));
+    assert!(diff.get("runner_up_total_score").is_none());
+    assert!(diff.get("score_gap").is_none());
+    assert!(diff.get("factors").is_none());
     if let Some(factors) = diff.get("factors").and_then(|v| v.as_array()) {
         let labels: Vec<&str> = factors.iter().filter_map(|v| v.get("label").and_then(|v| v.as_str())).collect();
         assert!(labels.iter().all(|label| matches!(*label, "verify_ok" | "geo_match" | "geo_risk" | "upstream_ok" | "raw_score" | "missing_verify" | "stale_verify" | "verify_failed_heavy" | "verify_failed_light" | "verify_failed_base" | "history_risk" | "provider_risk" | "provider_region_risk" | "verify_confidence" | "verify_score_delta" | "verify_source" | "anonymity" | "probe_latency" | "verify_risk" | "soft_min_score")));

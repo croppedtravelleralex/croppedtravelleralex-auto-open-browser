@@ -55,3 +55,7 @@
 - 当前更值的后续方向有两个：
   1. 把 `latest_browser_tasks` 投影成更轻、更像产品结果卡片的 shape
   2. 进入下一条更有价值的新主线，而不是继续停留在排序细节上
+
+## Next mainline candidates
+- 下一条更值主线候选里，当前最推荐的是回到**真实 browser 执行链继续做实**。
+- 原因：展示层已经够用，而长期主干价值更大的仍是 runner 真能力、真实 browser 执行稳定性、以及 API / runner / explainability / status 的更深统一。

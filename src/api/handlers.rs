@@ -1028,7 +1028,7 @@ pub async fn explain_proxy_selection(
         return Err((StatusCode::NOT_FOUND, format!("proxy not found: {proxy_id}")));
     };
     let id: String = row.try_get("id").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to decode id: {err}")))?;
-    let _provider: Option<String> = row.try_get("provider").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to decode provider: {err}")))?;
+    let provider: Option<String> = row.try_get("provider").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to decode provider: {err}")))?;
     let region: Option<String> = row.try_get("region").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to decode region: {err}")))?;
     let score: f64 = row.try_get("score").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to decode score: {err}")))?;
     let success_count: i64 = row.try_get("success_count").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to decode success_count: {err}")))?;
@@ -1083,9 +1083,16 @@ pub async fn explain_proxy_selection(
     );
     let cached_row = load_cached_trust_score_row(&state, &proxy_id).await?;
     let trust_score_total = cached_row.as_ref().and_then(|row| row.0);
-    let candidate_rank_preview = crate::runner::engine::compute_candidate_preview_with_reasons(&state, &now, None, None, 0.0_f64, None)
+    let candidate_rank_preview = crate::runner::engine::compute_candidate_preview_with_reasons(&state, &now, provider.as_deref(), region.as_deref(), 0.0_f64, None)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to build candidate preview with reasons: {err}")))?;
+    let candidate_rank_preview = if candidate_rank_preview.is_empty() {
+        crate::runner::engine::compute_candidate_preview_with_reasons(&state, &now, None, None, 0.0_f64, None)
+            .await
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to build fallback candidate preview with reasons: {err}")))?
+    } else {
+        candidate_rank_preview
+    };
 
     let cached_at = cached_row.as_ref().and_then(|row| row.1.clone());
     let selection_reason_summary = format!(

@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::network_identity::proxy_growth::{assess_proxy_pool_health, default_proxy_pool_growth_policy, evaluate_region_match, ProxyPoolInventorySnapshot};
-use crate::network_identity::proxy_selection::{apply_proxy_resolution_metadata, proxy_selection_base_where_sql, proxy_selection_order_by_cached_trust_score_sql, proxy_selection_order_by_trust_score_sql_with_tuning, resolved_proxy_json};
+use crate::network_identity::proxy_selection::{apply_proxy_resolution_metadata, proxy_selection_base_where_sql, proxy_selection_order_by_trust_score_sql_with_tuning, resolved_proxy_json};
 use crate::{
     api::dto::{
         CandidateRankPreviewItem, TrustScoreComponents, WinnerVsRunnerUpDiff,
@@ -255,7 +255,7 @@ fn extract_proxy_selection(payload: &Value) -> Option<RunnerProxySelection> {
     })
 }
 
-async fn load_proxy_trust_score(state: &AppState, proxy_id: &str, _now: &str) -> Result<Option<i64>> {
+async fn load_proxy_trust_score(state: &AppState, proxy_id: &str) -> Result<Option<i64>> {
     let value = sqlx::query_scalar::<_, i64>("SELECT cached_trust_score FROM proxies WHERE id = ? LIMIT 1")
         .bind(proxy_id)
         .fetch_optional(&state.db)
@@ -267,11 +267,11 @@ fn selection_reason_summary_for_mode(mode: &str, trust_score_total: Option<i64>,
     match (mode, trust_score_total, candidate_summary) {
         ("explicit", Some(score), _) => format!("explicit proxy_id selected active proxy directly; current trust score snapshot={score}"),
         ("sticky", Some(score), _) => format!("sticky session reused an active proxy binding; current trust score snapshot={score}"),
-        ("auto", Some(score), Some(summary)) => format!("selected highest-ranked active proxy by trust score ordering; trust_score_total={score}; {summary}"),
+        ("auto", Some(score), Some(summary)) => format!("selected highest-ranked active proxy by trust score ordering; trust score total={score}; {summary}"),
         ("auto", None, Some(summary)) => format!("selected highest-ranked active proxy by trust score ordering; {summary}"),
         ("explicit", None, _) => "explicit proxy_id selected active proxy directly".to_string(),
         ("sticky", None, _) => "sticky session reused an active proxy binding".to_string(),
-        ("auto", Some(score), None) => format!("selected highest-ranked active proxy by trust score ordering; trust_score_total={score}"),
+        ("auto", Some(score), None) => format!("selected highest-ranked active proxy by trust score ordering; trust score total={score}"),
         _ => "selected highest-ranked active proxy by trust score ordering".to_string(),
     }
 }
@@ -745,15 +745,20 @@ async fn compute_top_candidate_component_map(
     let query = format!(
         "SELECT id FROM proxies {} ORDER BY {} LIMIT 3",
         proxy_selection_base_where_sql(),
-        proxy_selection_order_by_cached_trust_score_sql()
+        proxy_selection_order_by_trust_score_sql_with_tuning(&state.proxy_selection_tuning)
     );
     let ids = sqlx::query_scalar::<_, String>(&query)
         .bind(now)
-         .bind(provider.as_deref())
-        .bind(provider.as_deref())
-        .bind(region.as_deref())
-        .bind(region.as_deref())
+        .bind(now)
+        .bind(provider)
+        .bind(provider)
+        .bind(region)
+        .bind(region)
         .bind(min_score)
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .bind(now)
         .fetch_all(&state.db).await?;
     let mut map = std::collections::HashMap::new();
     for id in ids {
@@ -772,17 +777,24 @@ pub async fn compute_candidate_preview_with_reasons(
     soft_min_score: Option<f64>,
 ) -> Result<Vec<CandidateRankPreviewItem>> {
     let query = format!(
-        "SELECT id, provider, region, score, COALESCE(cached_trust_score, 0) AS trust_score_total FROM proxies {} ORDER BY {} LIMIT 3",
+        "SELECT id, provider, region, score, ({}) AS trust_score_total FROM proxies {} ORDER BY {} LIMIT 3",
+        crate::network_identity::proxy_selection::proxy_trust_score_sql_with_tuning(&state.proxy_selection_tuning),
         proxy_selection_base_where_sql(),
-        proxy_selection_order_by_cached_trust_score_sql()
+        proxy_selection_order_by_trust_score_sql_with_tuning(&state.proxy_selection_tuning)
     );
     let rows = sqlx::query_as::<_, (String, Option<String>, Option<String>, f64, i64)>(&query)
         .bind(now)
-         .bind(provider.as_deref())
-        .bind(provider.as_deref())
-        .bind(region.as_deref())
-        .bind(region.as_deref())
+        .bind(now)
+        .bind(now)
+        .bind(provider)
+        .bind(provider)
+        .bind(region)
+        .bind(region)
         .bind(min_score)
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .bind(now)
         .fetch_all(&state.db).await?;
     let component_map = compute_top_candidate_component_map(state, now, provider, region, min_score, soft_min_score).await?;
     let baseline = rows.get(1).and_then(|row| component_map.get(&row.0));
@@ -849,7 +861,7 @@ async fn compute_proxy_selection_explain(
     let proxy_region: Option<String> = row.try_get("region")?;
     let provider_risk_hit: i64 = sqlx::query_scalar(provider_risk_query).bind(proxy_id).fetch_one(&state.db).await?;
     let provider_region_cluster_hit: i64 = sqlx::query_scalar(provider_region_query).bind(proxy_id).fetch_one(&state.db).await?;
-    let trust_score_total = load_proxy_trust_score(state, proxy_id, now).await?;
+    let trust_score_total = load_proxy_trust_score(state, proxy_id).await?;
     let region_match_ok = match (last_exit_region.as_deref(), proxy_region.as_deref()) {
         (Some(actual), Some(expected)) => Some(actual.eq_ignore_ascii_case(expected)),
         _ => None,
@@ -893,7 +905,7 @@ async fn auto_rank_position_for_proxy(
     let query = format!(
         "SELECT id FROM proxies {} ORDER BY {} LIMIT 50",
         proxy_selection_base_where_sql(),
-        proxy_selection_order_by_cached_trust_score_sql()
+        proxy_selection_order_by_trust_score_sql_with_tuning(&state.proxy_selection_tuning)
     );
     let ids = sqlx::query_scalar::<_, String>(&query)
         .bind(now)
@@ -902,6 +914,10 @@ async fn auto_rank_position_for_proxy(
         .bind(region)
         .bind(region)
         .bind(min_score)
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .bind(now)
         .fetch_all(&state.db)
         .await?;
     Ok(ids.into_iter().position(|id| id == proxy_id).map(|idx| idx as i64 + 1))
@@ -1017,7 +1033,7 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
         let rank_proxy_id = id.clone();
         let rank_provider = provider.clone();
         let rank_region = region.clone();
-        let mut resolved = resolved_proxy_json(id, scheme, host, port, username, password, region, country, provider, score);
+        let mut resolved = resolved_proxy_json(id, scheme, host, port, username, password, region.clone(), country, provider.clone(), score);
         if let Some(obj) = resolved.as_object_mut() {
             obj.insert("trust_score_total".to_string(), trust_score_total.map_or(Value::Null, |v| json!(v)));
             obj.insert("trust_score_components".to_string(), json!(trust_score_components.clone()));
@@ -1050,6 +1066,11 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
         } else {
             None
         };
+        let sticky_binding_trust_score_total = if selection_mode == "sticky" {
+            trust_score_total
+        } else {
+            None
+        };
         let soft_min_score_penalty_applied = soft_min_score.map(|threshold| score < threshold);
         let candidate_summary = preview
             .as_ref()
@@ -1057,7 +1078,14 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
             .map(|item| item.summary.as_str());
         let proxy_growth_for_selection = build_proxy_growth_explain_json(state, &payload_snapshot, selected_proxy_snapshot.as_ref()).await.ok();
         let requested_fp_budget = payload_snapshot.get("fingerprint_profile_json").and_then(|v| v.as_str()).map(|v| match fingerprint_perf_budget_tag_from_profile_json(Some(v)) { FingerprintPerfBudgetTag::Light => "light", FingerprintPerfBudgetTag::Medium => "medium", FingerprintPerfBudgetTag::Heavy => "heavy" });
-        policy_obj.insert("selection_reason_summary".to_string(), json!(selection_reason_summary_for_mode(selection_mode, trust_score_total, candidate_summary)));
+        policy_obj.insert(
+            "selection_reason_summary".to_string(),
+            json!(selection_reason_summary_for_mode(
+                selection_mode,
+                sticky_binding_trust_score_total.or(trust_score_total),
+                candidate_summary,
+            )),
+        );
         policy_obj.insert("selection_explain".to_string(), selection_explain_json(selection_mode, fallback_reason, None, sticky_binding_age_seconds, sticky_reuse_reason, would_rank_position_if_auto, soft_min_score, soft_min_score_penalty_applied, proxy_growth_for_selection, requested_fp_budget, Some(medium_budget_limit(state.worker_count)), Some(heavy_budget_limit(state.worker_count))));
         policy_obj.insert("trust_score_components".to_string(), json!(trust_score_components));
         if let Some(preview) = preview {
