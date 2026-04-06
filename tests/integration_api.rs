@@ -3306,7 +3306,9 @@ async fn status_latest_execution_summaries_prioritize_error_over_info() {
     assert!(!latest.is_empty());
     assert_eq!(latest[0].get("severity").and_then(|v| v.as_str()), Some("error"));
     assert_eq!(latest[0].get("task_id").and_then(|v| v.as_str()), Some(fail_task_id.as_str()));
-    assert_eq!(latest[0].get("key").and_then(|v| v.as_str()), Some("verify_proxy.execution"));
+        assert_eq!(latest[0].get("key").and_then(|v| v.as_str()), Some("browser.failure.runner_timeout"));
+    let failure_summary = latest[0].get("summary").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(failure_summary.contains("failure_scope=runner_timeout"));
 }
 
 #[tokio::test]
