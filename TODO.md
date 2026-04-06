@@ -60,20 +60,16 @@
 - [x] 给 `src/api/explainability.rs` 补独立 unit tests
 - [x] 给 `src/runner/engine.rs` 的 explainability 辅助逻辑补独立 unit tests
 - [x] 做一轮 explainability 主链剩余 loose JSON 普查与收口计划
-- [ ] 继续推进 trust score 核心化，减少分散排序项依赖（已去掉 trust/cached trust 主链中的原始分数二次兜底，继续收口剩余语义）
 - [x] 为 explicit / sticky / no-match 增加结构化 explain 字段
 - [x] 固化 eligibility gate vs ranking score 的正式边界
 - [x] 将 `soft_min_score` 作为 soft ranking penalty 并入 trust score
 - [x] 将 verify 慢路径底层风险信号并入 trust score（anonymity / latency / exit-ip / probe-error / geo-mismatch / region-mismatch）
 - [x] 评估 provider/provider×region 风险汇总是否吸收 verify 慢路径新信号
-- [ ] 继续收窄 trust cache / risk snapshot refresh 范围
 - [x] 为 selection / trust refresh / snapshot flip 增加最小 perf probe 埋点
 - [x] 跑一轮 selection / trust cache / verify 回写 profiling 样本记录
 - [x] 给 `/status` 与 `/proxies/:id/explain` 增加最小读取侧观测
-- [ ] 继续扩大真实任务流样本，验证 `provider_scope_flip / provider_region_scope_flip / proxy_only_no_flip` 命中比例是否稳定
 - [x] 推进 provider 级 refresh 范围收窄方案设计（优先研究 `provider risk version / dirty 标记 + 懒刷新`，且第一阶段只落 provider risk，不与 provider_region 一起上）
 - [x] 继续验证 provider risk version / seen 第一版在真实链路中的收益
-- [ ] 再补少量 providerScope 真实链路样本作为阶段收口
 - [x] 当前阶段决定继续延后 provider_region 扩面
 - [x] 评估 selection 是否需要继续消费 provider-risk version 语义
 - [x] 评估 explain 是否需要继续消费 provider-risk version 语义
@@ -117,11 +113,22 @@
 - [x] 继续补 `get_html` 结果边界与摘要质量
 - [x] 开始高级代理体系第一轮最小闭环
 - [x] 将 `proxy_growth` 规则接入选择链路或 explain 输出
-- [ ] 继续清 explainability summary / artifact 文案质量
-- [ ] 推进更真实的 verify 慢路径（匿名性 / 地区 / 出口真实性之外的稳定质量信号）
 - [x] 设计高并发下的性能优化与写放大控制策略
 - [x] 收口 verify / runner 后的 scoped trust refresh，减少重复 refresh 写放大
 - [x] 抽取 trust cache `UPDATE proxies SET cached_trust_score = ...` 公共 SQL 模板
+- [x] 将 fingerprint-first 开发规则写入项目规则文档
+- [x] 按规则实现指纹字段优先级分层
+- [x] 按规则实现指纹-代理-地区一致性检查
+- [x] 按规则实现指纹性能预算与并发预算
+- [ ] 同步 `CURRENT_DIRECTION.md` / `CURRENT_TASK.md` / `STATUS.md` / `TODO.md` 到真实 browser 执行主线口径
+- [ ] 稳定真实 browser 执行链第一轮（创建 / 调度 / 执行 / 回写 / 失败定位）
+- [ ] 设计并落地统一执行身份模型（`proxy + fingerprint + session identity`）
+- [ ] 把 verify / trust score 从选前判断扩展到执行前 / 执行中 / 执行后闭环
+- [ ] 升级 status / explain / result 为长期运营级控制面第一轮
+- [ ] 继续清 explainability summary / artifact 文案质量
+- [ ] 继续补真实浏览器任务流样本与失败分类
+- [ ] 继续补 selection / verify / runtime / result 的统一 explainability
+- [ ] 继续治理高并发下的写放大、状态竞争、聚合成本
 - [ ] 设计高级指纹下的性能预算与性能开销控制策略
 - [ ] 设计磁盘使用监控与落盘上限策略
 - [ ] 记录 selection / status / trust cache / verify 回写链的 explain-level profiling 结果
@@ -130,7 +137,7 @@
 ## P1
 
 - [ ] 设计身份画像系统（Identity Profile）
-- [ ] 设计 SessionIdentity / ExecutionIdentity，把 `proxy + fingerprint + region + risk_level` 收到统一表达
+- [ ] 设计 SessionIdentity / ExecutionIdentity，把 `proxy + fingerprint + session identity` 收到统一表达
 - [ ] 设计站点维度代理适配机制
 - [ ] 设计行为层模拟机制
 - [ ] 设计会话连续性机制
@@ -160,10 +167,5 @@
 - [ ] 任务结果与 artifact 的落盘策略
 - [ ] 截图 / HTML / console log 的存储方式
 - [ ] 真实浏览器执行结果与 proxy quality 信号如何更紧耦合
-- [ ] trust score 与未来 risk score / policy engine 的边界
+- [ ] verify / trust score 在执行闭环里的边界
 - [ ] Identity Profile 与 fingerprint profile 的职责切分
-
-- [x] 将 fingerprint-first 开发规则写入项目规则文档
-- [x] 按规则实现指纹字段优先级分层
-- [x] 按规则实现指纹-代理-地区一致性检查
-- [x] 按规则实现指纹性能预算与并发预算

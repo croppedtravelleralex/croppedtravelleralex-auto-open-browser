@@ -2,9 +2,9 @@
 
 ## 当前状态摘要
 
-- **状态：** 已进入 **trust score 核心化 + verify 慢路径并入主排序 + 性能治理前置阶段**
-- **日期：** 2026-04-02
-- **当前焦点：** 把 **selection 中剩余的控制流语义** 和 **verify 慢路径底层风险信号** 继续统一进 **trust score / explainability 主链**，并开始为 provider/provider×region 风险聚合与 profiling 做前置收口。
+- **状态：** 已进入 **真实 browser 执行主线升级阶段**
+- **日期：** 2026-04-06
+- **当前焦点：** 把项目从“代理排序 / trust score / verify / refresh 收口”上提到 **真实 browser 执行链稳定化 + 统一执行身份模型 + 执行闭环质量系统 + 长期运营级控制面**
 
 ## 本文件用途
 
@@ -35,7 +35,7 @@
    - fake / lightpanda 统一 profile 视图
    - task/status 详情暴露 fingerprint resolution status
 
-3. **Proxy pool / verify / trust score 主链**
+3. **Proxy / verify / trust score 基础质量链**
    - proxy CRUD
    - provider / region / min_score / cooldown 过滤
    - sticky session 正式绑定表 `proxy_session_bindings`
@@ -44,7 +44,7 @@
    - provider / provider×region 风险快照
    - cached trust score 持久化、scan / repair / maintenance
 
-4. **Explainability / 可观测性主链**
+4. **Explain / status / result 基础控制面**
    - task / status / explain 接口统一暴露 `selection_reason_summary`
    - `selection_explain` 结构化输出
    - `winner_vs_runner_up_diff` 结构化输出
@@ -55,72 +55,67 @@
    - `/proxies/:id/explain` 暴露 `trust_score_cached_at / explain_generated_at / explain_source`
    - explainability assembler 已从 handlers 中抽离到独立模块
 
-5. **selection → trust score 核心化的当前成果**
-   - auto 选择主链已经明确走 `trust score` 排序
-   - explainability 已能输出 `trust_score_components`、候选预览与 winner-vs-runner-up 对比
-   - `explicit / sticky / no-match` 已补结构化 explain 字段
-   - `min_score` 已明确保持 hard gate，`soft_min_score` 已以 soft ranking penalty 形式进入 score 主链
-   - provider/provider×region 风险已经进入 score 组件层表达
+5. **真实 browser 执行主线的阶段判断**
+   - 代理排序、verify 慢路径、trust score、refresh 范围治理已经完成第一阶段接线
+   - 这些能力现在更适合作为真实执行主线的支撑层，而不是继续单独充当项目总纲
+   - 当前阶段的核心问题已变成：真实执行是否稳定、身份是否统一、质量判断是否覆盖执行闭环、控制面是否能支撑长期运营
 
-6. **verify 慢路径已开始真正并入排序主链**
-   当前不仅 verify 接口能输出慢路径诊断，而且以下底层信号已经正式进入 trust score：
-   - anonymity (`anonymity_bonus`)
-   - probe latency (`latency_penalty`)
-   - `exit_ip_not_public` (`exit_ip_not_public_penalty`)
-   - `probe_error_category` 映射 (`probe_error_penalty`)
-   - `geo mismatch` severity (`geo_mismatch_penalty`)
-   - `region mismatch` severity (`region_mismatch_penalty`)
+6. **统一执行身份模型仍待正式落地**
+   - 当前已有 proxy 绑定、fingerprint 注入、sticky session 等基础
+   - 但 `proxy + fingerprint + session identity` 仍未形成单一执行身份模型
+   - selection、verify、runtime、result 之间仍存在语义分散问题
 
-   这意味着 verify 慢路径已经从“接口诊断信息”升级为“selection 的真实排序输入”。
+7. **性能与并发治理进入支撑位**
+   - trust cache、verify 回写、status 聚合、selection explain 已经全部进入主链
+   - 当前需要持续治理写放大、状态竞争、聚合成本与高并发抖动
+   - 但这些工作现在的定位是支撑真实 browser 执行长期运行，而不是单独定义阶段目标
 
-7. **测试与稳定性**
+8. **测试与稳定性**
    - 单测 + 集成测试持续覆盖执行、代理、verify、trust score、explainability 主链
    - 当前测试状态：**41 unit + 84 integration 全绿**
 
 ## 当前风险
 
-1. **selection 语义仍未完全统一。**
-   当前 auto 主链已经走 trust score，但 explicit / sticky / cooldown / no-match fallback 仍保留一定控制流语义，后续若继续叠规则，维护成本仍可能升高。
+1. **真实 browser 执行主线还没有被明确写成第一优先级。**
+   如果继续沿用旧口径，后续动作容易继续围绕排序细节和 refresh 收口打转，而不是解决真实执行稳定性。
 
-2. **provider/provider×region 聚合虽已开始吸收 verify 新信号，但聚合范围与 refresh 代价还需继续收敛。**
-   当前 provider risk snapshot 已吸收 `exit_ip_not_public` 群体命中，provider×region risk snapshot 已吸收 `region_mismatch` 群体命中，但后续仍需继续验证聚合收益与范围刷新成本的平衡。
+2. **执行身份语义仍然分散。**
+   当前 proxy、fingerprint、sticky session、地区一致性已经分别存在，但还没有统一成可被 selection / runtime / result / explain 共同消费的执行身份模型。
 
-3. **高并发下的 SQL / 写放大治理还没有正式做。**
-   trust cache、verify 回写、status 聚合、selection explain 已经全部进入主链，且 profiling 样本显示范围刷新分支占比不低，后续要正式看查询成本、索引策略与写频率。
+3. **verify / trust score 仍偏“选前判断”视角。**
+   当前 verify 慢路径已经进入部分排序输入，但执行中与执行后的质量反馈仍未完整进入闭环。
 
-4. **profiling 已有第一批真实样本，当前热点仍偏写侧范围刷新。**
-   当前已为 snapshot refresh / cached trust refresh / scoped refresh branch、`/status` 与 `/proxies/:id/explain` 增加 `AOB_PERF_PROBE=1` 观测埋点，并拿到第一批样本：范围刷新分支命中占比约 `57.1%`，其中 `provider_scope_flip` 是当前主导项；读侧 `/status` 约 `1ms`、`/proxies/:id/explain` 在 `candidate_count=1~3` 时约 `3~6ms`，当前仍明显轻于写侧范围刷新。
+4. **status / explain / result 还偏调试视角。**
+   现在能解释排序和部分运行信息，但还不足以作为长期运营级控制面持续回答“执行是否稳定、身份是否一致、失败集中在哪”。
 
-5. **文档刚追回代码主线，仍需持续同步。**
-   如果 `STATUS / TODO / PROGRESS / CURRENT_*` 不持续跟进，自动推进仍可能围绕旧阶段动作打转。
+5. **高并发下的写侧压力与状态竞争仍需持续治理。**
+   写放大、refresh 范围、回写频率、状态聚合成本依然是真实 browser 执行主线规模化后的主要支撑风险。
 
-6. **Lightpanda 真实浏览器侧的更深 fingerprint 消费还没正式进入系统验证阶段。**
-   当前 profile 注入主链是通的，但真实浏览器侧更深能力与性能影响仍待系统评估。
+6. **文档刚完成阶段切换，后续仍需持续同步。**
+   如果 `STATUS / TODO / CURRENT_*` 不继续跟进，自动推进仍可能回到旧主线。
 
 ## 当前下一步
 
 ### P0
-1. **继续推进 selection → trust score 核心化**，把剩余分散在 selection 中的控制流语义继续收进统一 score / explain 边界。
-2. **继续扩大真实任务流样本，验证 `provider_scope_flip / provider_region_scope_flip / proxy_only_no_flip` 的命中比例是否稳定。**
-3. **推进绝对指纹优先第一批真实实现**，当前已把 `fingerprint_runtime_explain` 正式抬入 API explainability 聚合层：`TaskExplainability -> TaskResponse` 已可直接返回 fingerprint runtime explain，不再只藏在原始 result_json 里。
-4. **继续清 explainability 主链里剩余 typed/JSON 边界与 summary 文案质量。**
-5. **推进更真实的 verify 慢路径**，继续补匿名性 / 地区 / 出口真实性以外的可稳定质量信号。
+1. **统一阶段文档口径**，把当前主线明确为真实 browser 执行升级阶段。
+2. **推进真实 browser 执行链稳定化**，优先定位执行路径上的稳定性、回写一致性、失败可复现问题。
+3. **设计 `SessionIdentity / ExecutionIdentity`**，把 `proxy + fingerprint + session identity` 收到统一执行身份表达。
+4. **定义 verify / trust score 的执行闭环角色**，明确它们在执行前、执行中、执行后分别如何产出与消费质量信号。
+5. **升级 status / explain / result 控制面**，让它们开始面向长期运营而不是只服务调试。
 
 ### P1
-6. 设计代理质量评分系统正式形态。
-7. 设计 `SessionIdentity / ExecutionIdentity`，把 `proxy + fingerprint + region + risk_level` 收到统一表达。
+6. 继续补真实任务流样本与失败分类。
+7. 继续补 selection / verify / runtime / result 的统一 explainability。
 8. 继续压 panic 风险点、锁竞争风险点与 flaky 测试。
 9. 继续完善 API / 运维 / 能力说明文档。
 
-## 本轮体检（2026-04-02）
+## 本轮体检（2026-04-06）
 
-- **找 bug：** 本轮没有新增业务逻辑 bug；profiling 样本反而确认了两个真实热点事实：`provider_scope_flip` 已在 verify/open_page/batch verify 真执行链中真实命中，且范围刷新分支在当前样本中占比约 `57.1%`。
-- **性能评分：** 当前阶段 **9.4/10**。优点是 trust score / explainability 主链已经开始真正消费 verify 慢路径信号，profiling 最小观测埋点已经落地且已有第一批真实样本；扣分点主要转移到读取侧观测尚未补齐。
-- **改进建议：** 下一步最值得做的是 **开始把 fingerprint runtime explain 与高级代理体系 explain 聚合起来，形成统一的 identity/network explain 面**。
+- **找 bug：** 本轮重点不是新增代码修复，而是完成阶段口径切换，避免项目继续围绕旧主线做小修小补。
+- **阶段判断：** 当前最重要的不是再证明 trust score / verify / refresh 有多完整，而是明确它们已经应当退到支撑位，主线升级为真实 browser 执行系统。
+- **改进建议：** 下一步最值得做的是把 `proxy + fingerprint + session identity` 和 `status / explain / result` 拉到同一执行闭环视角下。
 
 ## Autopilot Sync
 
-- 当前文档已对齐到 **2026-04-02 trust score 核心化 + verify 慢路径并入主排序 + 性能治理前置阶段**。
-
-
-- **阶段冻结边界：** providerRegion 继续冻结；selection redesign 继续冻结；广义 trust 语义扩张继续冻结。
+- 当前文档已对齐到 **2026-04-06 真实 browser 执行主线升级阶段**。
+- **阶段冻结边界：** 性能与并发治理继续推进，但按支撑项处理；不再把代理排序 / trust score / refresh 收口单独写成阶段总纲。
