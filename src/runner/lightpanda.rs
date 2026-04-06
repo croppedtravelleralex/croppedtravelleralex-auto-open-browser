@@ -1300,6 +1300,86 @@ exit 7",
     }
 
     #[tokio::test]
+    async fn execute_detects_dns_failure_signal_from_stderr() {
+        let script = write_script(
+            "browser-dns-fail",
+            "echo dns name not resolved >&2
+exit 9",
+        );
+        let result = execute_with_bin(script.to_str().unwrap(), json!({"url": "https://example.com"}), Some(5)).await;
+        let _ = fs::remove_file(script);
+
+        assert!(matches!(result.status, RunnerOutcomeStatus::Failed));
+        let json = result.result_json.expect("result json");
+        assert_eq!(json.get("browser_failure_signal").and_then(|v| v.as_str()), Some("browser_dns_failure_signal"));
+        assert_eq!(json.get("failure_scope").and_then(|v| v.as_str()), Some("browser_execution"));
+    }
+
+    #[tokio::test]
+    async fn execute_detects_tls_failure_signal_from_stderr() {
+        let script = write_script(
+            "browser-tls-fail",
+            "echo tls certificate failure >&2
+exit 9",
+        );
+        let result = execute_with_bin(script.to_str().unwrap(), json!({"url": "https://example.com"}), Some(5)).await;
+        let _ = fs::remove_file(script);
+
+        assert!(matches!(result.status, RunnerOutcomeStatus::Failed));
+        let json = result.result_json.expect("result json");
+        assert_eq!(json.get("browser_failure_signal").and_then(|v| v.as_str()), Some("browser_tls_failure_signal"));
+        assert_eq!(json.get("failure_scope").and_then(|v| v.as_str()), Some("browser_execution"));
+    }
+
+    #[tokio::test]
+    async fn execute_detects_timeout_signal_from_stderr_as_browser_failure() {
+        let script = write_script(
+            "browser-timeout-signal",
+            "echo request timed out while waiting for page >&2
+exit 9",
+        );
+        let result = execute_with_bin(script.to_str().unwrap(), json!({"url": "https://example.com"}), Some(5)).await;
+        let _ = fs::remove_file(script);
+
+        assert!(matches!(result.status, RunnerOutcomeStatus::Failed));
+        let json = result.result_json.expect("result json");
+        assert_eq!(json.get("browser_failure_signal").and_then(|v| v.as_str()), Some("browser_timeout_signal"));
+        assert_eq!(json.get("failure_scope").and_then(|v| v.as_str()), Some("browser_execution"));
+    }
+
+    #[tokio::test]
+    async fn execute_timeout_prefers_runner_timeout_scope_even_when_stderr_mentions_timeout() {
+        let script = write_script(
+            "browser-sleep-timeout",
+            "echo request timed out while waiting for page >&2
+sleep 2",
+        );
+        let result = execute_with_bin(script.to_str().unwrap(), json!({"url": "https://example.com"}), Some(1)).await;
+        let _ = fs::remove_file(script);
+
+        assert!(matches!(result.status, RunnerOutcomeStatus::TimedOut));
+        let json = result.result_json.expect("result json");
+        assert_eq!(json.get("browser_failure_signal").and_then(|v| v.as_str()), Some("browser_timeout_signal"));
+        assert_eq!(json.get("failure_scope").and_then(|v| v.as_str()), Some("runner_timeout"));
+    }
+
+    #[tokio::test]
+    async fn execute_non_browser_non_zero_exit_stays_in_runner_process_exit_scope() {
+        let script = write_script(
+            "runner-generic-fail",
+            "echo generic failure >&2
+exit 9",
+        );
+        let result = execute_with_bin(script.to_str().unwrap(), json!({"url": "https://example.com"}), Some(5)).await;
+        let _ = fs::remove_file(script);
+
+        assert!(matches!(result.status, RunnerOutcomeStatus::Failed));
+        let json = result.result_json.expect("result json");
+        assert_eq!(json.get("browser_failure_signal").and_then(|v| v.as_str()), None);
+        assert_eq!(json.get("failure_scope").and_then(|v| v.as_str()), Some("runner_process_exit"));
+    }
+
+    #[tokio::test]
     async fn execute_detects_browser_failure_signal_from_stderr() {
         let script = write_script(
             "browser-nav-fail",
