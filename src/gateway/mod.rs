@@ -66,9 +66,11 @@ struct ModelCard {
 
 pub fn build_gateway_router(state: GatewayState) -> Router {
     Router::new()
+        .route("/", get(index_page))
         .route("/health", get(gateway_health))
         .route("/admin/usage", get(admin_usage))
         .route("/admin/stats", get(admin_stats))
+        .route("/admin/dashboard", get(admin_dashboard))
         .route("/v1/models", get(list_models))
         .route("/v1/chat/completions", post(chat_completions))
         .with_state(state)
@@ -98,6 +100,40 @@ pub fn gateway_state_from_env() -> GatewayState {
     }
 }
 
+async fn index_page() -> impl IntoResponse {
+    let html = r#"<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>agent.alexstudio.top</title>
+  <style>
+    body { font-family: Inter, Arial, sans-serif; background:#0b1020; color:#e8ecf3; margin:0; padding:40px; }
+    .card { max-width: 860px; margin: 0 auto; background:#141b2d; border:1px solid #25304d; border-radius:16px; padding:28px; }
+    h1 { margin-top:0; font-size:28px; }
+    .muted { color:#9fb0d1; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin-top:24px; }
+    .item { background:#0e1528; border:1px solid #243250; border-radius:12px; padding:16px; }
+    a { color:#7cc4ff; text-decoration:none; }
+    code { background:#0a1120; padding:2px 6px; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>agent.alexstudio.top</h1>
+    <p class="muted">Private gateway v0 for Alex's controlled AI/API relay.</p>
+    <div class="grid">
+      <div class="item"><strong>Health</strong><br/><a href="/health">/health</a></div>
+      <div class="item"><strong>Models</strong><br/><code>GET /v1/models</code></div>
+      <div class="item"><strong>Chat</strong><br/><code>POST /v1/chat/completions</code></div>
+      <div class="item"><strong>Admin stats</strong><br/><a href="/admin/dashboard">/admin/dashboard</a></div>
+    </div>
+  </div>
+</body>
+</html>"#;
+    axum::response::Html(html)
+}
+
 async fn gateway_health(State(state): State<GatewayState>) -> impl IntoResponse {
     Json(json!({
         "status":"ok",
@@ -114,6 +150,65 @@ async fn admin_usage(State(state): State<GatewayState>, headers: HeaderMap) -> R
     }
     let events = state.usage_log.lock().expect("usage log mutex poisoned").clone();
     Json(json!({"events": events})).into_response()
+}
+
+async fn admin_dashboard(State(state): State<GatewayState>, headers: HeaderMap) -> Response {
+    if let Err(resp) = authorize_admin(&state, &headers) {
+        return resp;
+    }
+    let events = state.usage_log.lock().expect("usage log mutex poisoned").clone();
+    let mut by_token = std::collections::BTreeMap::new();
+    let mut by_status = std::collections::BTreeMap::new();
+    let mut by_model = std::collections::BTreeMap::new();
+    for event in &events {
+        *by_token.entry(event.token_label.clone()).or_insert(0usize) += 1;
+        *by_status.entry(event.status_code.to_string()).or_insert(0usize) += 1;
+        *by_model.entry(event.model.clone().unwrap_or_else(|| "unknown".to_string())).or_insert(0usize) += 1;
+    }
+    let token_items = by_token.iter().map(|(k,v)| format!("<li><strong>{}</strong>: {}</li>", k, v)).collect::<Vec<_>>().join("");
+    let status_items = by_status.iter().map(|(k,v)| format!("<li><strong>{}</strong>: {}</li>", k, v)).collect::<Vec<_>>().join("");
+    let model_items = by_model.iter().map(|(k,v)| format!("<li><strong>{}</strong>: {}</li>", k, v)).collect::<Vec<_>>().join("");
+    let recent_rows = events.iter().rev().take(20).map(|e| format!("<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>", e.token_label, e.path, e.model.clone().unwrap_or_else(|| "-".to_string()), e.upstream_target.clone().unwrap_or_else(|| "-".to_string()), e.status_code)).collect::<Vec<_>>().join("");
+    let html = format!(r#"<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>agent dashboard</title>
+  <style>
+    body {{ font-family: Inter, Arial, sans-serif; background:#0b1020; color:#e8ecf3; margin:0; padding:28px; }}
+    .wrap {{ max-width: 1100px; margin: 0 auto; }}
+    .panel {{ background:#141b2d; border:1px solid #25304d; border-radius:16px; padding:20px; margin-bottom:18px; }}
+    .grid {{ display:grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:14px; }}
+    ul {{ margin:8px 0 0 18px; }}
+    table {{ width:100%; border-collapse: collapse; }}
+    th, td {{ border-bottom:1px solid #243250; padding:10px; text-align:left; }}
+    .muted {{ color:#9fb0d1; }}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="panel">
+    <h1>agent gateway dashboard</h1>
+    <p class="muted">Private monitoring surface for token usage and request activity.</p>
+    <p>Total events: <strong>{}</strong></p>
+  </div>
+  <div class="grid">
+    <div class="panel"><h3>By token</h3><ul>{}</ul></div>
+    <div class="panel"><h3>By status</h3><ul>{}</ul></div>
+    <div class="panel"><h3>By model</h3><ul>{}</ul></div>
+  </div>
+  <div class="panel">
+    <h3>Recent requests</h3>
+    <table>
+      <thead><tr><th>token</th><th>path</th><th>model</th><th>upstream</th><th>status</th></tr></thead>
+      <tbody>{}</tbody>
+    </table>
+  </div>
+</div>
+</body>
+</html>"#, events.len(), token_items, status_items, model_items, recent_rows);
+    axum::response::Html(html).into_response()
 }
 
 async fn admin_stats(State(state): State<GatewayState>, headers: HeaderMap) -> Response {
