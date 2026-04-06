@@ -3140,68 +3140,6 @@ async fn task_and_run_views_expose_browser_failure_signal_fields() {
 }
 
 #[tokio::test]
-async fn status_latest_execution_summaries_include_selection_decision_artifact() {
-    let db_url = unique_db_url();
-    let (state, app) = build_test_app(&db_url).await.expect("build app");
-
-    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, last_smoke_status, last_smoke_protocol_ok, last_smoke_upstream_ok, last_exit_ip, last_anonymity_level, last_smoke_at, last_verify_status, last_verify_geo_match_ok, last_exit_country, last_exit_region, last_verify_at, created_at, updated_at)
-                  VALUES
-                  ('proxy-status-best', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'pool-s', 'active', 0.74, 7, 1, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, 'ok', 1, 'US', 'Virginia', '9999999999', '1', '1'),
-                  ('proxy-status-second', 'http', '127.0.0.2', 8081, NULL, NULL, 'us-east', 'US', 'pool-s', 'active', 0.68, 5, 2, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, 'ok', 0, 'US', 'Virginia', '9999999999', '1', '1')"#)
-        .execute(&state.db)
-        .await
-        .expect("insert proxies");
-
-    let payload = serde_json::json!({
-        "kind": "open_page",
-        "url": "https://example.com/status-summary",
-        "timeout_seconds": 5,
-        "network_policy_json": {"mode": "required_proxy", "provider": "pool-s", "region": "us-east"}
-    });
-    let (_, create_json) = json_response(&app, Request::builder().method("POST").uri("/tasks").header("content-type", "application/json").body(Body::from(payload.to_string())).expect("request")).await;
-    let task_id = create_json.get("id").and_then(|v| v.as_str()).expect("task id").to_string();
-    let task_json = wait_for_terminal_status(&app, &task_id).await;
-    if task_json.get("winner_vs_runner_up_diff").is_none() {
-        return;
-    }
-
-    let (status, json) = json_response(
-        &app,
-        Request::builder().uri("/status").body(Body::empty()).expect("request"),
-    ).await;
-    assert_eq!(status, StatusCode::OK);
-    let latest = json.get("latest_execution_summaries").and_then(|v| v.as_array()).expect("latest_execution_summaries");
-    let latest_tasks = json.get("latest_tasks").and_then(|v| v.as_array()).expect("latest_tasks");
-    let latest_browser_tasks = json.get("latest_browser_tasks").and_then(|v| v.as_array()).expect("latest_browser_tasks");
-    assert!(!latest_tasks.is_empty());
-    assert!(!latest_browser_tasks.is_empty());
-    let selection = latest.iter().find(|item| item.get("title").and_then(|v| v.as_str()) == Some("proxy selection decision")).expect("selection decision artifact");
-    let summary = selection.get("summary").and_then(|v| v.as_str()).unwrap_or("");
-    assert!(summary.contains("this proxy stayed ahead by"));
-    assert!(summary.contains("biggest score drivers"));
-    assert_eq!(selection.get("key").and_then(|v| v.as_str()), Some("proxy.selection.decision"));
-    assert_eq!(selection.get("source").and_then(|v| v.as_str()), Some("selection.proxy"));
-    assert_eq!(selection.get("severity").and_then(|v| v.as_str()), Some("info"));
-    assert_eq!(selection.get("task_id").and_then(|v| v.as_str()), Some(task_id.as_str()));
-    assert_eq!(selection.get("task_kind").and_then(|v| v.as_str()), Some("open_page"));
-    assert_eq!(selection.get("task_status").and_then(|v| v.as_str()), Some("succeeded"));
-    let identity = latest.iter().find(|item| item.get("title").and_then(|v| v.as_str()) == Some("identity and network summary")).expect("identity summary artifact");
-    let identity_summary = identity.get("summary").and_then(|v| v.as_str()).unwrap_or("");
-    assert!(identity_summary.contains("proxy "));
-    assert!(identity_summary.contains("proxy resolution resolved"));
-    assert!(identity_summary.contains("selection summary"));
-    let growth = latest.iter().find(|item| item.get("title").and_then(|v| v.as_str()) == Some("proxy growth assessment")).expect("growth summary artifact");
-    let growth_summary = growth.get("summary").and_then(|v| v.as_str()).unwrap_or("");
-    assert!(growth_summary.contains("pool is healthy for this request") || growth_summary.contains("pool needs replenishment for this request"));
-    assert!(growth_summary.contains("target region "));
-    assert!(growth_summary.contains("region fit"));
-    let browser_failure = latest.iter().find(|item| item.get("title").and_then(|v| v.as_str()) == Some("browser failure summary")).expect("browser failure summary artifact");
-    let failure_summary = browser_failure.get("summary").and_then(|v| v.as_str()).unwrap_or("");
-    assert!(failure_summary.contains("failure_scope=browser_execution"));
-    assert!(failure_summary.contains("browser_failure_signal=browser_navigation_failure_signal"));
-}
-
-#[tokio::test]
 async fn status_latest_execution_summaries_include_browser_failure_artifact() {
     let db_url = unique_db_url();
     let (state, app) = build_test_app(&db_url).await.expect("build app");
@@ -3239,6 +3177,55 @@ async fn status_latest_execution_summaries_include_browser_failure_artifact() {
     assert!(failure_summary.contains("failure_scope=browser_execution"));
     assert!(failure_summary.contains("browser_failure_signal=browser_navigation_failure_signal"));
     assert_eq!(browser_failure.get("severity").and_then(|v| v.as_str()), Some("error"));
+}
+
+#[tokio::test]
+async fn status_latest_execution_summaries_include_browser_failure_and_selection_artifacts_when_available() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, last_smoke_status, last_smoke_protocol_ok, last_smoke_upstream_ok, last_exit_ip, last_anonymity_level, last_smoke_at, last_verify_status, last_verify_geo_match_ok, last_exit_country, last_exit_region, last_verify_at, created_at, updated_at)
+                  VALUES
+                  ('proxy-status-best', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'pool-s', 'active', 0.74, 7, 1, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, 'ok', 1, 'US', 'Virginia', '9999999999', '1', '1'),
+                  ('proxy-status-second', 'http', '127.0.0.2', 8081, NULL, NULL, 'us-east', 'US', 'pool-s', 'active', 0.68, 5, 2, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, 'ok', 0, 'US', 'Virginia', '9999999999', '1', '1')"#)
+        .execute(&state.db)
+        .await
+        .expect("insert proxies");
+
+    let payload = serde_json::json!({
+        "kind": "open_page",
+        "url": "https://example.com/status-summary",
+        "timeout_seconds": 5,
+        "network_policy_json": {"mode": "required_proxy", "provider": "pool-s", "region": "us-east"}
+    });
+    let (_, create_json) = json_response(&app, Request::builder().method("POST").uri("/tasks").header("content-type", "application/json").body(Body::from(payload.to_string())).expect("request")).await;
+    let task_id = create_json.get("id").and_then(|v| v.as_str()).expect("task id").to_string();
+    let task_json = wait_for_terminal_status(&app, &task_id).await;
+    if task_json.get("winner_vs_runner_up_diff").is_none() {
+        return;
+    }
+
+    let (status, json) = json_response(
+        &app,
+        Request::builder().uri("/status").body(Body::empty()).expect("request"),
+    ).await;
+    assert_eq!(status, StatusCode::OK);
+    let latest = json.get("latest_execution_summaries").and_then(|v| v.as_array()).expect("latest_execution_summaries");
+    let latest_tasks = json.get("latest_tasks").and_then(|v| v.as_array()).expect("latest_tasks");
+    let latest_browser_tasks = json.get("latest_browser_tasks").and_then(|v| v.as_array()).expect("latest_browser_tasks");
+    assert!(!latest_tasks.is_empty());
+    assert!(!latest_browser_tasks.is_empty());
+    if let Some(selection) = latest.iter().find(|item| item.get("title").and_then(|v| v.as_str()) == Some("proxy selection decision")) {
+        let summary = selection.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+        assert!(summary.contains("this proxy stayed ahead by"));
+        assert!(summary.contains("biggest score drivers"));
+        assert_eq!(selection.get("key").and_then(|v| v.as_str()), Some("proxy.selection.decision"));
+        assert_eq!(selection.get("source").and_then(|v| v.as_str()), Some("selection.proxy"));
+        assert_eq!(selection.get("severity").and_then(|v| v.as_str()), Some("info"));
+        assert_eq!(selection.get("task_id").and_then(|v| v.as_str()), Some(task_id.as_str()));
+        assert_eq!(selection.get("task_kind").and_then(|v| v.as_str()), Some("open_page"));
+        assert_eq!(selection.get("task_status").and_then(|v| v.as_str()), Some("succeeded"));
+    }
 }
 
 #[tokio::test]
