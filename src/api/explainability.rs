@@ -1159,6 +1159,20 @@ mod tests {
                         run_id: None,
                         attempt: None,
                         timestamp: None,
+                    },
+                    SummaryArtifactResponse {
+                        category: "execution".to_string(),
+                        key: "browser.failure.browser_execution".to_string(),
+                        source: "runner.browser_failure".to_string(),
+                        severity: "error".to_string(),
+                        title: "browser failure summary".to_string(),
+                        summary: "failure_scope=browser_execution browser_failure_signal=browser_navigation_failure_signal".to_string(),
+                        task_id: None,
+                        task_kind: None,
+                        task_status: None,
+                        run_id: None,
+                        attempt: None,
+                        timestamp: None,
                     }
                 ],
                 fingerprint_profile_id: None,
@@ -1188,9 +1202,11 @@ mod tests {
         ];
 
         let latest = latest_execution_summaries(&tasks);
-        assert_eq!(latest.len(), 2);
+        assert_eq!(latest.len(), 3);
+        assert_eq!(latest[0].title, "browser failure summary");
         assert_eq!(latest[0].severity, "error");
         assert_eq!(latest[0].task_id.as_deref(), Some("task-2"));
+        assert_eq!(latest[1].severity, "error");
         assert!(latest.iter().filter(|item| item.title == "duplicate title").count() == 1);
         assert!(latest.iter().any(|item| item.task_id.as_deref() == Some("task-1")));
     }
