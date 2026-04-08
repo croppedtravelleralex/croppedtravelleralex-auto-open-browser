@@ -273,13 +273,16 @@ fn build_result(
     message: impl Into<String>,
 ) -> RunnerExecutionResult {
     let message = message.into();
-    let is_error = matches!(outcome, RunnerOutcomeStatus::Failed | RunnerOutcomeStatus::TimedOut);
+    let is_error = matches!(outcome, RunnerOutcomeStatus::Failed | RunnerOutcomeStatus::TimedOut | RunnerOutcomeStatus::Cancelled);
     let browser_failure_signal = detect_browser_failure_signal(stderr_preview.as_deref(), stdout_preview.as_deref());
-    let failure_scope = is_error.then_some(runner_failure_scope(
-        error_kind,
-        browser_failure_signal,
-        matches!(outcome, RunnerOutcomeStatus::TimedOut),
-    ));
+    let failure_scope = match outcome {
+        RunnerOutcomeStatus::Cancelled => Some("runner_cancelled"),
+        _ => is_error.then_some(runner_failure_scope(
+            error_kind,
+            browser_failure_signal,
+            matches!(outcome, RunnerOutcomeStatus::TimedOut),
+        )),
+    };
     let (_, html_length, _) = html_preview_metadata(stdout_preview.as_deref(), action);
     let (_, text_length, _) = text_preview_metadata(stdout_preview.as_deref(), action);
 
@@ -303,12 +306,16 @@ fn build_result(
             fingerprint_runtime,
             &message,
         )),
-        error_message: is_error.then_some(message.clone()),
+        error_message: matches!(outcome, RunnerOutcomeStatus::Failed | RunnerOutcomeStatus::TimedOut).then_some(message.clone()),
         summary_artifacts: vec![crate::runner::types::RunnerSummaryArtifact {
             category: crate::runner::types::SummaryArtifactCategory::Execution,
             key: format!("{}.execution", task.kind),
             source: "runner.lightpanda".to_string(),
-            severity: if is_error { crate::runner::types::SummaryArtifactSeverity::Error } else { crate::runner::types::SummaryArtifactSeverity::Info },
+            severity: match outcome {
+                RunnerOutcomeStatus::Failed | RunnerOutcomeStatus::TimedOut => crate::runner::types::SummaryArtifactSeverity::Error,
+                RunnerOutcomeStatus::Cancelled => crate::runner::types::SummaryArtifactSeverity::Warning,
+                RunnerOutcomeStatus::Succeeded => crate::runner::types::SummaryArtifactSeverity::Info,
+            },
             title: execution_summary_title(action, status, error_kind),
             summary: format!(
                 "{} failure_scope={} browser_failure_signal={} content_kind={} html_length={} text_length={}",
@@ -451,6 +458,7 @@ fn classify_exit_code(exit_code: Option<i32>) -> &'static str {
     match exit_code {
         Some(126) => "runner_invocation_not_executable",
         Some(127) => "runner_command_not_found",
+        Some(143) => "runner_cancelled",
         Some(code) if code >= 128 => "runner_terminated_by_signal",
         Some(_) => "runner_non_zero_exit",
         None => "runner_non_zero_exit",
@@ -502,6 +510,8 @@ fn detect_browser_failure_signal(stderr_preview: Option<&str>, stdout_preview: O
 fn runner_failure_scope(error_kind: Option<&str>, browser_failure_signal: Option<&str>, timed_out: bool) -> &'static str {
     if timed_out {
         "runner_timeout"
+    } else if error_kind == Some("runner_cancelled") {
+        "runner_cancelled"
     } else if browser_failure_signal.is_some() {
         "browser_execution"
     } else {
@@ -715,6 +725,8 @@ impl TaskRunner for LightpandaRunner {
 
         let wait_result = timeout(Duration::from_secs(timeout_seconds), child.wait()).await;
 
+        self.unregister_child(&task.task_id);
+
         let (outcome, status_text, error_kind, message, exit_code) = match wait_result {
             Ok(waited) => match waited {
                 Ok(status) if status.success() => (
@@ -726,11 +738,25 @@ impl TaskRunner for LightpandaRunner {
                 ),
                 Ok(status) => {
                     let exit_code = status.code();
+                    let error_kind = classify_exit_code(exit_code);
+                    let (outcome, status_text, message) = if error_kind == "runner_cancelled" {
+                        (
+                            RunnerOutcomeStatus::Cancelled,
+                            "cancelled",
+                            format!("lightpanda fetch was cancelled (exit_code={exit_code:?})"),
+                        )
+                    } else {
+                        (
+                            RunnerOutcomeStatus::Failed,
+                            "failed",
+                            format!("lightpanda fetch exited with non-zero status (exit_code={exit_code:?})"),
+                        )
+                    };
                     (
-                        RunnerOutcomeStatus::Failed,
-                        "failed",
-                        Some(classify_exit_code(exit_code)),
-                        format!("lightpanda fetch exited with non-zero status (exit_code={exit_code:?})"),
+                        outcome,
+                        status_text,
+                        Some(error_kind),
+                        message,
                         exit_code,
                     )
                 },

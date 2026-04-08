@@ -26,19 +26,17 @@
 
 当前已处于：
 
-> 最小可运行后端原型已打通，正在向更完整的控制面、观测面和真实执行器适配层演进。
+> 真实 browser 执行主线升级阶段。
 
 当前已知现状：
 
-- 最小任务闭环已建立
-- 已有 SQLite 持久化
-- 已有内存任务队列
-- 已有 fake runner
-- 已有 runs / logs 查询接口
-- 已有可选 API Key 鉴权
-- 已有 Lightpanda runner 占位适配层与 runner kind 切换入口
+- 最小任务闭环、SQLite 持久化、DB-first queue、runs / logs / status 基础控制面已稳定存在
+- fake runner 已不再代表项目主线，当前主线是 Lightpanda 真实执行链稳定化
+- 已有 fingerprint profile、proxy pool、sticky session、verify / trust score、selection explainability 等支撑层能力
+- 当前代码正在补齐 running cancel、结果回写一致性、失败分类与执行闭环质量语义
+- API 服务当前已在 Ubuntu 上运行，可通过 127.0.0.1:3000 正常返回 /health 与 /status
 
-接手时不要把项目误判为“只有文档没有代码”。这个项目已经进入了真实工程推进阶段。
+接手时不要再把项目理解成“最小原型准备接真实执行器”，而要理解成“真实执行主线已经开始，当前在做稳定化、身份统一与运营控制面升级”。
 
 ---
 

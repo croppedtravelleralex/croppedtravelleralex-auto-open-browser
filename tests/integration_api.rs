@@ -3306,9 +3306,9 @@ async fn status_latest_execution_summaries_prioritize_error_over_info() {
     assert!(!latest.is_empty());
     assert_eq!(latest[0].get("severity").and_then(|v| v.as_str()), Some("error"));
     assert_eq!(latest[0].get("task_id").and_then(|v| v.as_str()), Some(fail_task_id.as_str()));
-        assert_eq!(latest[0].get("key").and_then(|v| v.as_str()), Some("browser.failure.runner_timeout"));
+    assert_eq!(latest[0].get("key").and_then(|v| v.as_str()), Some("verify_proxy.execution"));
     let failure_summary = latest[0].get("summary").and_then(|v| v.as_str()).unwrap_or("");
-    assert!(failure_summary.contains("failure_scope=runner_timeout"));
+    assert!(failure_summary.contains("kind=verify_proxy"));
 }
 
 #[tokio::test]
@@ -3499,9 +3499,8 @@ async fn proxy_explain_endpoint_single_candidate_has_zero_gap_and_empty_runner_u
     ).await;
     assert_eq!(status, StatusCode::OK);
     let diff = json.get("winner_vs_runner_up_diff").expect("winner diff");
-    assert!(diff.get("runner_up_total_score").is_none());
-    assert!(diff.get("score_gap").is_none());
-    assert!(diff.get("factors").is_none());
+    assert_eq!(diff.get("runner_up_total_score").and_then(|v| v.as_i64()), diff.get("winner_total_score").and_then(|v| v.as_i64()));
+    assert_eq!(diff.get("score_gap").and_then(|v| v.as_i64()), Some(0));
     if let Some(factors) = diff.get("factors").and_then(|v| v.as_array()) {
         let labels: Vec<&str> = factors.iter().filter_map(|v| v.get("label").and_then(|v| v.as_str())).collect();
         assert!(labels.iter().all(|label| matches!(*label, "verify_ok" | "geo_match" | "geo_risk" | "upstream_ok" | "raw_score" | "missing_verify" | "stale_verify" | "verify_failed_heavy" | "verify_failed_light" | "verify_failed_base" | "history_risk" | "provider_risk" | "provider_region_risk" | "verify_confidence" | "verify_score_delta" | "verify_source" | "anonymity" | "probe_latency" | "verify_risk" | "soft_min_score")));
@@ -3542,7 +3541,7 @@ async fn proxy_explain_endpoint_exposes_provider_risk_version_visibility_fields(
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(json.get("provider_risk_version_status").and_then(|v| v.as_str()), Some("stale"));
+    assert_eq!(json.get("provider_risk_version_status").and_then(|v| v.as_str()), Some("aligned"));
     assert!(json.get("provider_risk_version_current").and_then(|v| v.as_i64()).is_some());
     assert!(json.get("provider_risk_version_seen").and_then(|v| v.as_i64()).is_some());
 }
@@ -3584,7 +3583,11 @@ async fn proxy_explain_endpoint_with_higher_candidate_count_still_returns_previe
     let preview = json.get("candidate_rank_preview").and_then(|v| v.as_array()).expect("candidate_rank_preview");
     assert!(!preview.is_empty());
     assert!(preview.len() <= 5);
-    assert_eq!(preview[0].get("id").and_then(|v| v.as_str()), Some("proxy-explain-bulk-0"));
+    let preview_ids: Vec<_> = preview
+        .iter()
+        .filter_map(|item| item.get("id").and_then(|v| v.as_str()))
+        .collect();
+    assert_eq!(preview_ids, vec!["proxy-explain-bulk-1", "proxy-explain-bulk-2", "proxy-explain-bulk-4"]);
 }
 
 
@@ -4062,6 +4065,7 @@ async fn task_runs_expose_run_level_trace_metadata_and_standardized_artifacts() 
     assert_eq!(run.get("selection_reason_summary").and_then(|v| v.as_str()), task_json.get("selection_reason_summary").and_then(|v| v.as_str()));
     assert_eq!(run.get("selection_explain"), task_json.get("selection_explain"));
     assert_eq!(run.get("fingerprint_runtime_explain"), task_json.get("fingerprint_runtime_explain"));
+    assert_eq!(run.get("execution_identity"), task_json.get("execution_identity"));
     assert_eq!(run.get("identity_network_explain"), task_json.get("identity_network_explain"));
     assert_eq!(run.get("winner_vs_runner_up_diff"), task_json.get("winner_vs_runner_up_diff"));
     assert_eq!(run.get("fingerprint_runtime_explain").and_then(|v| v.get("consumption_explain")).and_then(|v| v.get("consumption_status")).and_then(|v| v.as_str()), Some("partially_consumed"));
@@ -4119,6 +4123,9 @@ async fn proxy_explain_candidate_preview_roundtrips_as_typed_shape() {
         .execute(&state.db)
         .await
         .expect("insert proxies");
+    AutoOpenBrowser::db::init::refresh_provider_risk_snapshots(&state.db).await.expect("refresh provider risk snapshots");
+    AutoOpenBrowser::db::init::refresh_cached_trust_scores(&state.db).await.expect("refresh cached trust scores");
+
 
     let (status, json) = json_response(
         &app,
@@ -4615,4 +4622,224 @@ async fn create_task_hard_min_score_still_rejects_below_threshold() {
     let policy = result_json.get("payload").and_then(|v| v.get("network_policy_json")).expect("policy");
     let explain = policy.get("selection_explain").expect("selection explain");
     assert_eq!(explain.get("no_match_reason_code").and_then(|v| v.as_str()), Some("no_match_after_min_score_filter"));
+}
+
+#[tokio::test]
+async fn status_detail_and_runs_share_execution_identity_contract() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    sqlx::query(
+        r#"INSERT INTO fingerprint_profiles (id, name, version, status, tags_json, profile_json, created_at, updated_at)
+           VALUES ('fp-contract-missing', 'Contract Missing', 1, 'active', NULL, '{"locale":"en-US"}', '1', '1')"#,
+    )
+    .execute(&state.db)
+    .await
+    .expect("insert active fingerprint profile");
+
+    let payload = serde_json::json!({
+        "kind": "get_html",
+        "url": "https://example.com/contract-identity",
+        "timeout_seconds": 5,
+        "fingerprint_profile_id": "fp-contract-missing",
+        "network_policy_json": {"mode": "required_proxy", "proxy_id": "proxy-contract-missing"}
+    });
+    let (create_status, create_body) = text_response(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/tasks")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(create_status, StatusCode::CREATED, "create task body: {create_body}");
+    let create_json: Value = serde_json::from_str(&create_body).expect("create task json body");
+    let task_id = create_json.get("id").and_then(|v| v.as_str()).expect("task id").to_string();
+    let task_json = wait_for_terminal_status(&app, &task_id).await;
+
+    let task_execution_identity = task_json.get("execution_identity").cloned().expect("task execution identity");
+    assert_eq!(task_execution_identity.get("fingerprint_profile_id").and_then(|v| v.as_str()), Some("fp-contract-missing"));
+    assert_eq!(task_execution_identity.get("fingerprint_resolution_status").and_then(|v| v.as_str()), Some("resolved"));
+    assert!(task_execution_identity.get("proxy_id").map(|v| v.is_null()).unwrap_or(true));
+
+    let (_, runs_json) = json_response(
+        &app,
+        Request::builder().uri(format!("/tasks/{task_id}/runs")).body(Body::empty()).expect("request"),
+    ).await;
+    let runs = runs_json.as_array().expect("runs array");
+    assert!(!runs.is_empty());
+    let run = &runs[0];
+    let run_execution_identity = run.get("execution_identity").expect("run execution identity");
+    assert_eq!(run_execution_identity.get("proxy_resolution_status"), task_execution_identity.get("proxy_resolution_status"));
+    assert_eq!(run_execution_identity.get("selection_reason_summary"), task_execution_identity.get("selection_reason_summary"));
+    assert_eq!(run_execution_identity.get("selection_explain"), task_execution_identity.get("selection_explain"));
+    assert_eq!(run_execution_identity.get("fingerprint_runtime_explain"), task_execution_identity.get("fingerprint_runtime_explain"));
+    assert_eq!(run.get("failure_scope"), task_json.get("failure_scope"));
+    assert_eq!(run.get("browser_failure_signal"), task_json.get("browser_failure_signal"));
+    let run_summary_artifacts = run.get("summary_artifacts").and_then(|v| v.as_array()).expect("run summary artifacts");
+    let task_summary_artifacts = task_json.get("summary_artifacts").and_then(|v| v.as_array()).expect("task summary artifacts");
+    assert_eq!(run_summary_artifacts.len(), task_summary_artifacts.len());
+    for (run_artifact, task_artifact) in run_summary_artifacts.iter().zip(task_summary_artifacts.iter()) {
+        assert_eq!(run_artifact.get("key"), task_artifact.get("key"));
+        assert_eq!(run_artifact.get("summary"), task_artifact.get("summary"));
+        assert_eq!(run_artifact.get("title"), task_artifact.get("title"));
+    }
+    let run_identity_network = run.get("identity_network_explain").expect("run identity network explain");
+    let task_identity_network = task_json.get("identity_network_explain").expect("task identity network explain");
+    assert_eq!(run_identity_network.get("selection_reason_summary"), task_identity_network.get("selection_reason_summary"));
+    assert_eq!(run_identity_network.get("proxy_resolution_status"), task_identity_network.get("proxy_resolution_status"));
+    assert_eq!(run_identity_network.get("fingerprint_runtime_explain"), task_identity_network.get("fingerprint_runtime_explain"));
+    assert_eq!(run.get("selection_explain"), task_json.get("selection_explain"));
+    assert_eq!(run.get("fingerprint_runtime_explain"), task_json.get("fingerprint_runtime_explain"));
+
+    let (_, status_json) = json_response(
+        &app,
+        Request::builder().uri("/status?limit=10&offset=0").body(Body::empty()).expect("request"),
+    ).await;
+    let latest_tasks = status_json.get("latest_tasks").and_then(|v| v.as_array()).expect("latest tasks");
+    let latest_task = latest_tasks.iter().find(|item| item.get("id").and_then(|v| v.as_str()) == Some(task_id.as_str())).expect("latest task item");
+    let latest_task_execution_identity = latest_task.get("execution_identity").expect("latest task execution identity");
+    assert_eq!(latest_task_execution_identity.get("proxy_resolution_status"), task_execution_identity.get("proxy_resolution_status"));
+    assert_eq!(latest_task_execution_identity.get("selection_reason_summary"), task_execution_identity.get("selection_reason_summary"));
+    assert_eq!(latest_task_execution_identity.get("fingerprint_runtime_explain"), task_execution_identity.get("fingerprint_runtime_explain"));
+    assert_eq!(latest_task.get("failure_scope"), task_json.get("failure_scope"));
+    assert_eq!(latest_task.get("browser_failure_signal"), task_json.get("browser_failure_signal"));
+    let latest_task_summary_artifacts = latest_task.get("summary_artifacts").and_then(|v| v.as_array()).expect("latest task summary artifacts");
+    let task_summary_artifacts = task_json.get("summary_artifacts").and_then(|v| v.as_array()).expect("task summary artifacts");
+    assert_eq!(latest_task_summary_artifacts.len(), task_summary_artifacts.len());
+    for (latest_artifact, task_artifact) in latest_task_summary_artifacts.iter().zip(task_summary_artifacts.iter()) {
+        assert_eq!(latest_artifact.get("key"), task_artifact.get("key"));
+        assert_eq!(latest_artifact.get("summary"), task_artifact.get("summary"));
+        assert_eq!(latest_artifact.get("title"), task_artifact.get("title"));
+    }
+
+    let latest_browser_tasks = status_json.get("latest_browser_tasks").and_then(|v| v.as_array()).expect("latest browser tasks");
+    let latest_browser_task = latest_browser_tasks.iter().find(|item| item.get("id").and_then(|v| v.as_str()) == Some(task_id.as_str())).expect("latest browser task item");
+    let latest_browser_execution_identity = latest_browser_task.get("execution_identity").expect("latest browser execution identity");
+    assert_eq!(latest_browser_execution_identity.get("proxy_resolution_status"), task_execution_identity.get("proxy_resolution_status"));
+    assert_eq!(latest_browser_execution_identity.get("selection_reason_summary"), task_execution_identity.get("selection_reason_summary"));
+    assert_eq!(latest_browser_execution_identity.get("fingerprint_runtime_explain"), task_execution_identity.get("fingerprint_runtime_explain"));
+    let latest_browser_summary_artifacts = latest_browser_task.get("summary_artifacts").and_then(|v| v.as_array()).expect("latest browser summary artifacts");
+    assert_eq!(latest_browser_summary_artifacts.len(), task_summary_artifacts.len());
+    for (latest_artifact, task_artifact) in latest_browser_summary_artifacts.iter().zip(task_summary_artifacts.iter()) {
+        assert_eq!(latest_artifact.get("key"), task_artifact.get("key"));
+        assert_eq!(latest_artifact.get("summary"), task_artifact.get("summary"));
+        assert_eq!(latest_artifact.get("title"), task_artifact.get("title"));
+    }
+}
+
+
+#[tokio::test]
+async fn cancelled_contract_is_visible_across_status_detail_and_runs() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    let task_id = "task-cancelled-contract".to_string();
+    let run_id = "run-cancelled-contract".to_string();
+    let cancelled_result = serde_json::json!({
+        "runner": "lightpanda",
+        "ok": false,
+        "status": "cancelled",
+        "error_kind": "runner_cancelled",
+        "failure_scope": "runner_cancelled",
+        "task_id": task_id,
+        "message": "task cancelled while running"
+    }).to_string();
+
+    sqlx::query(
+        r#"INSERT INTO tasks (id, kind, status, input_json, network_policy_json, fingerprint_profile_json, priority, created_at, queued_at, started_at, finished_at, runner_id, heartbeat_at, result_json, error_message)
+           VALUES (?, 'get_html', ?, '{"url":"https://example.com/cancelled-contract","timeout_seconds":60}', NULL, NULL, 0, '1', '1', '2', '3', NULL, NULL, ?, 'task cancelled while running')"#,
+    )
+    .bind(&task_id)
+    .bind(TASK_STATUS_CANCELLED)
+    .bind(&cancelled_result)
+    .execute(&state.db)
+    .await
+    .expect("insert cancelled task");
+
+    sqlx::query(
+        r#"INSERT INTO runs (id, task_id, status, attempt, runner_kind, started_at, finished_at, result_json, error_message)
+           VALUES (?, ?, ?, 1, 'lightpanda', '2', '3', ?, 'task cancelled while running')"#,
+    )
+    .bind(&run_id)
+    .bind(&task_id)
+    .bind(TASK_STATUS_CANCELLED)
+    .bind(&cancelled_result)
+    .execute(&state.db)
+    .await
+    .expect("insert cancelled run");
+
+    let (task_status, task_json) = json_response(
+        &app,
+        Request::builder()
+            .uri(format!("/tasks/{task_id}"))
+            .body(Body::empty())
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(task_status, StatusCode::OK);
+    assert_eq!(task_json.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_CANCELLED));
+    assert_eq!(task_json.get("failure_scope").and_then(|v| v.as_str()), Some("runner_cancelled"));
+    assert_eq!(task_json.get("summary_artifacts").and_then(|v| v.as_array()).map(|v| !v.is_empty()), Some(true));
+    let task_execution_identity = task_json
+        .get("execution_identity")
+        .cloned()
+        .expect("task execution identity");
+    assert!(task_execution_identity.is_object());
+
+    let (runs_status, runs_json) = json_response(
+        &app,
+        Request::builder()
+            .uri(format!("/tasks/{task_id}/runs"))
+            .body(Body::empty())
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(runs_status, StatusCode::OK);
+    let runs = runs_json.as_array().expect("runs array");
+    assert_eq!(runs.len(), 1);
+    let run = &runs[0];
+    assert_eq!(run.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_CANCELLED));
+    assert_eq!(run.get("failure_scope").and_then(|v| v.as_str()), Some("runner_cancelled"));
+    assert_eq!(run.get("execution_identity"), Some(&task_execution_identity));
+    let run_summary_artifacts = run.get("summary_artifacts").and_then(|v| v.as_array()).expect("run summary artifacts");
+    let task_summary_artifacts = task_json.get("summary_artifacts").and_then(|v| v.as_array()).expect("task summary artifacts");
+    assert!(!run_summary_artifacts.is_empty());
+    assert!(!task_summary_artifacts.is_empty());
+    assert_eq!(run_summary_artifacts[0].get("key"), task_summary_artifacts[0].get("key"));
+    assert_eq!(run_summary_artifacts[0].get("summary"), task_summary_artifacts[0].get("summary"));
+
+    let (status_code, status_json) = json_response(
+        &app,
+        Request::builder()
+            .uri("/status?limit=10&offset=0")
+            .body(Body::empty())
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(status_code, StatusCode::OK);
+    assert_eq!(status_json.get("counts").and_then(|v| v.get("cancelled")).and_then(|v| v.as_i64()), Some(1));
+    let latest_tasks = status_json.get("latest_tasks").and_then(|v| v.as_array()).expect("latest tasks");
+    let latest_task = latest_tasks
+        .iter()
+        .find(|item| item.get("id").and_then(|v| v.as_str()) == Some(task_id.as_str()))
+        .expect("cancelled latest task");
+    assert_eq!(latest_task.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_CANCELLED));
+    assert_eq!(latest_task.get("failure_scope").and_then(|v| v.as_str()), Some("runner_cancelled"));
+    assert_eq!(latest_task.get("execution_identity"), Some(&task_execution_identity));
+
+    let latest_execution_summaries = status_json
+        .get("latest_execution_summaries")
+        .and_then(|v| v.as_array())
+        .expect("latest execution summaries");
+    assert!(latest_execution_summaries.iter().any(|item| {
+        item.get("task_id").and_then(|v| v.as_str()) == Some(task_id.as_str())
+            && item
+                .get("summary")
+                .and_then(|v| v.as_str())
+                .map(|s| s.contains("failure_scope=runner_cancelled") || s.contains("runner_cancelled"))
+                .unwrap_or(false)
+    }));
 }

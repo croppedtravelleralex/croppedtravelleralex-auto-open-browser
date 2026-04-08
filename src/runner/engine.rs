@@ -18,7 +18,7 @@ use crate::{
     network_identity::fingerprint_policy::FingerprintPerfBudgetTag,
     db::init::refresh_proxy_trust_views_for_scope,
     domain::{
-        run::{RUN_STATUS_RUNNING, RUN_STATUS_SUCCEEDED, RUN_STATUS_FAILED, RUN_STATUS_TIMED_OUT},
+        run::{RUN_STATUS_CANCELLED, RUN_STATUS_RUNNING, RUN_STATUS_SUCCEEDED, RUN_STATUS_FAILED, RUN_STATUS_TIMED_OUT},
         task::{
             TASK_STATUS_CANCELLED, TASK_STATUS_FAILED, TASK_STATUS_QUEUED, TASK_STATUS_RUNNING,
             TASK_STATUS_SUCCEEDED, TASK_STATUS_TIMED_OUT,
@@ -749,13 +749,11 @@ async fn compute_top_candidate_component_map(
     );
     let ids = sqlx::query_scalar::<_, String>(&query)
         .bind(now)
-        .bind(now)
         .bind(provider)
         .bind(provider)
         .bind(region)
         .bind(region)
         .bind(min_score)
-        .bind(now)
         .bind(now)
         .bind(now)
         .bind(now)
@@ -786,12 +784,12 @@ pub async fn compute_candidate_preview_with_reasons(
         .bind(now)
         .bind(now)
         .bind(now)
+        .bind(now)
         .bind(provider)
         .bind(provider)
         .bind(region)
         .bind(region)
         .bind(min_score)
-        .bind(now)
         .bind(now)
         .bind(now)
         .bind(now)
@@ -917,7 +915,6 @@ async fn auto_rank_position_for_proxy(
         .bind(now)
         .bind(now)
         .bind(now)
-        .bind(now)
         .fetch_all(&state.db)
         .await?;
     Ok(ids.into_iter().position(|id| id == proxy_id).map(|idx| idx as i64 + 1))
@@ -1013,12 +1010,11 @@ async fn resolve_network_policy_for_task(state: &AppState, payload: &mut Value) 
         );
         row = sqlx::query_as::<_, (String, String, String, i64, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, f64)>(&query)
             .bind(&now)
-             .bind(provider.as_deref())
+            .bind(provider.as_deref())
             .bind(provider.as_deref())
             .bind(region.as_deref())
             .bind(region.as_deref())
             .bind(min_score)
-            .bind(&now)
             .bind(&now)
             .bind(&now)
             .bind(&now)
@@ -1248,11 +1244,12 @@ async fn update_proxy_health_after_execution(state: &AppState, proxy: Option<&Ru
     let (success_inc, failure_inc, cooldown_until): (i64, i64, Option<String>) = match execution_status {
         RunnerOutcomeStatus::Succeeded => (1, 0, None),
         RunnerOutcomeStatus::Failed => (0, 1, Some((now.parse::<u64>().unwrap_or(0) + 60).to_string())),
+        RunnerOutcomeStatus::Cancelled => (0, 0, None),
         RunnerOutcomeStatus::TimedOut => (0, 1, Some((now.parse::<u64>().unwrap_or(0) + 180).to_string())),
     };
     sqlx::query(r#"UPDATE proxies SET success_count = success_count + ?, failure_count = failure_count + ?, last_used_at = ?, last_checked_at = ?, cooldown_until = ?, score = MAX(0.0, score + ?), updated_at = ? WHERE id = ?"#)
         .bind(success_inc).bind(failure_inc).bind(&now).bind(&now).bind(&cooldown_until)
-        .bind(match execution_status { RunnerOutcomeStatus::Succeeded => 0.01_f64, RunnerOutcomeStatus::Failed => -0.02_f64, RunnerOutcomeStatus::TimedOut => -0.03_f64 })
+        .bind(match execution_status { RunnerOutcomeStatus::Succeeded => 0.01_f64, RunnerOutcomeStatus::Failed => -0.02_f64, RunnerOutcomeStatus::Cancelled => 0.0_f64, RunnerOutcomeStatus::TimedOut => -0.03_f64 })
         .bind(&now).bind(&proxy.id)
         .execute(&state.db).await?;
     refresh_proxy_trust_views_for_scope(&state.db, &proxy.id, proxy.provider.as_deref(), proxy.region.as_deref()).await?;
@@ -1698,6 +1695,12 @@ where
             "error",
             format!("{} runner finished with failure, attempt={attempt}", runner.name()),
         ),
+        RunnerOutcomeStatus::Cancelled => (
+            TASK_STATUS_CANCELLED,
+            RUN_STATUS_CANCELLED,
+            "warn",
+            format!("{} runner finished with cancellation, attempt={attempt}", runner.name()),
+        ),
         RunnerOutcomeStatus::TimedOut => (
             TASK_STATUS_TIMED_OUT,
             RUN_STATUS_TIMED_OUT,
@@ -1836,20 +1839,54 @@ where
         .await?;
 
         if task_update.rows_affected() == 0 {
-            insert_log(
-                state,
-                &format!("log-{}", Uuid::new_v4()),
-                &task_id,
-                Some(&run_id),
-                "warn",
-                &format!(
-                    "{} runner finished but task terminal overwrite skipped because task was no longer running, attempt={attempt}",
-                    runner.name()
-                ),
-            )
-            .await?;
+            let latest_task_status = sqlx::query_scalar::<_, String>(r#"SELECT status FROM tasks WHERE id = ?"#)
+                .bind(&task_id)
+                .fetch_one(&state.db)
+                .await?;
+
+            if latest_task_status == TASK_STATUS_CANCELLED {
+                sqlx::query("UPDATE tasks SET finished_at = ?, runner_id = NULL, heartbeat_at = NULL, result_json = COALESCE(?, result_json) WHERE id = ?")
+                    .bind(&finished_at)
+                    .bind(&result_json)
+                    .bind(&task_id)
+                    .execute(&state.db)
+                    .await?;
+
+                insert_log(
+                    state,
+                    &format!("log-{}", Uuid::new_v4()),
+                    &task_id,
+                    Some(&run_id),
+                    "warn",
+                    &format!(
+                        "{} runner finished after cancel race; terminal task status overwrite skipped but result cleanup persisted, attempt={attempt}",
+                        runner.name()
+                    ),
+                )
+                .await?;
+            } else {
+                insert_log(
+                    state,
+                    &format!("log-{}", Uuid::new_v4()),
+                    &task_id,
+                    Some(&run_id),
+                    "warn",
+                    &format!(
+                        "{} runner finished but task terminal overwrite skipped because task was no longer running, attempt={attempt}",
+                        runner.name()
+                    ),
+                )
+                .await?;
+            }
         }
     } else {
+        sqlx::query("UPDATE tasks SET finished_at = ?, runner_id = NULL, heartbeat_at = NULL, result_json = COALESCE(?, result_json) WHERE id = ?")
+            .bind(&finished_at)
+            .bind(&result_json)
+            .bind(&task_id)
+            .execute(&state.db)
+            .await?;
+
         insert_log(
             state,
             &format!("log-{}", Uuid::new_v4()),
@@ -1857,7 +1894,7 @@ where
             Some(&run_id),
             "warn",
             &format!(
-                "{} runner finished after cancel; terminal task overwrite skipped, attempt={attempt}",
+                "{} runner finished after cancel; terminal task status overwrite skipped but result cleanup persisted, attempt={attempt}",
                 runner.name()
             ),
         )

@@ -21,13 +21,15 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 json_get() {
-  local key="$1"
-  python3 - "$key" <<'PY'
+  local key=""
+  local input
+  input=""
+  python3 - "" "" <<PY
 import json, sys
 key = sys.argv[1]
-data = json.load(sys.stdin)
+data = json.loads(sys.argv[2])
 value = data
-for part in key.split('.'):
+for part in key.split("."):
     if isinstance(value, dict):
         value = value.get(part)
     else:

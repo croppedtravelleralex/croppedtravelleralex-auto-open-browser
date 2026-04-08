@@ -1,69 +1,64 @@
 # PLAN.md
 
-`lightpanda-automation` / `AutoOpenBrowser` 项目统一计划书。
+lightpanda-automation / AutoOpenBrowser 项目统一计划书。
 
 ---
 
 ## 1. 当前总目标
 
-把当前已经打通的最小后端原型，继续推进为一个：
+把当前已经跑起来的真实 browser 自动化后端，继续推进为一个：
 
 - 具备稳定任务生命周期管理能力
-- 具备更完整控制面与观测面
-- 可从 fake runner 平滑演进到 real runner
-- 可逐步接入 `lightpanda-io/browser` 的浏览器自动化系统
+- 具备统一执行身份模型（proxy + fingerprint + session identity）
+- 具备执行前 / 执行中 / 执行后闭环质量判断
+- 具备长期运营级 status / explain / result 控制面
+- 可在真实 Lightpanda 执行链上持续稳定运行
 
 ---
 
 ## 2. 当前阶段
 
-当前阶段不是从零开始搭骨架，而是：
+当前阶段不是继续扩新执行能力，而是：
 
-> 在已有最小闭环基础上，继续增强 runner 抽象、控制面、观测面，并为真实执行器接入做准备。
+> 把已经完成的 ExecutionIdentity V1 + cancelled API 闭环 升级成 Task Contract / Control-Plane Visibility V1。
+
+这意味着当前阶段首先要做到：
+- 文档口径一致
+- status / detail / runs 口径一致
+- cancelled 终态口径一致
+- 测试能直接钉住这些事实
 
 ---
 
 ## 3. 当前优先级
 
 ### P0：主线推进
-1. 核对当前代码与文档是否一致，避免状态漂移
-2. 固化标准接手入口（`AI.md` / `PLAN.md` / `FEATURES.md`）与旧文档映射
-3. 完成 runner 通用执行层抽离后的结构收口，确保 fake/lightpanda/engine 职责清晰
-4. 推进 fingerprint profile 从 runner 注入入口走向真实执行器消费边界
-5. 继续验证并打磨 `LightpandaRunner` 本地二进制执行链路（stdout/stderr/timeout/exit code）
-6. 推进 `lightpanda` runner 适配层从最小真实执行走向更稳定可用
-7. 增强 `runs / logs / status` 查询控制与分页
-8. 继续推进 `running cancel` 从设计预留走向最小可用第一版
+1. 更新 docs/lightpanda-api-task-structure.md、docs/api-ops.md、docs/control-plane-and-visibility-mainline.md，明确当前稳定 contract
+2. 同步 STATUS.md / TODO.md / CURRENT_TASK.md / progress.md / PLAN.md 到 contract 收口阶段
+3. 在 tests/integration_api.rs 增加三面一致性测试，验证 /status、detail、runs 对同一执行的 identity / explain / failure 口径一致
+4. 在 tests/integration_api.rs 增加 cancelled 契约测试，固定 runner_cancelled 的正式终态表达
+5. 如测试暴露轻微字段漂移，仅最小修补 src/api/handlers.rs / src/api/explainability.rs
+6. 完成远程测试与 curl 验收
 
-### P1：控制面与观测面增强
-1. 明确当前取消、分页、状态控制等缺口的落地顺序
-2. 增强 `runs / logs / status` 的查询控制、limit、分页
-3. 为 running cancel 做设计预留或第一版实现
+### P1：下一阶段预留
+1. 继续补更多真实任务流样本与失败分类
+2. 继续把 status / explain / result 推向更高层运营级控制面
+3. 在 contract 收口后，再回到真实 Lightpanda 执行稳定化下一轮
 
 ### P2：中期能力铺垫
-1. 补齐浏览器指纹能力边界设计，并收口为可配置/可注入/可验证的第一版策略层
+1. 补更深真实指纹消费边界
 2. 代理池 / 代理抓取 / 清洗 / 轮换 / 自生长策略设计
 3. 磁盘使用控制、artifact/log 保留与归档策略
 4. 高并发下性能优化与写放大控制策略
 
 ---
 
-## 3.1 Fingerprint -> Lightpanda 当前落地方向
-
-当前建议按以下顺序推进：
-1. 先在 `LightpandaRunner` 内新增 profile 消费边界函数，把 `RunnerFingerprintProfile` 映射为统一运行时配置对象
-2. 第一版优先映射低风险静态字段：`accept_language / timezone / locale / viewport / screen / platform / hardware_concurrency / device_memory_gb`
-3. 注入方式优先级：**环境变量 / CLI 参数 / 预留 browser context 配置**，避免一开始就侵入复杂浏览器补丁层
-4. 若执行器暂不支持某字段，必须显式记录“已收到但未消费”，不要静默吞掉
-5. 继续保持 profile 注入和真实执行解耦，让 fake runner / lightpanda runner 共享同一输入模型
-
 ## 4. 当前已知阻塞 / 风险
 
-- `LightpandaRunner` 虽已进入最小真实执行阶段，但当前仍偏 V1，缺少充分验证与稳定性保护
-- `LightpandaRunner` 仍未真正消费 fingerprint profile，只是拿到了统一注入对象
-- 查询侧能力虽已有 limit / offset，但后续仍可能需要更强的 cursor / metrics 方案
-- 部分历史文档保留了旧阶段表述，存在认知分散风险
-- 当前工作树已有未提交改动，接手时需小心不要覆盖进行中的实现
+- 文档可能仍落后于接口现实，需要先完成同步
+- tests/integration_api.rs 还缺针对统一 identity / cancelled contract 的最小钉子
+- 当前工作树已有未提交改动，实施时需严格最小改动
+- beyond-stub 的真实 Lightpanda 深层验证仍是后续阶段任务，不应在本轮重新扩面
 
 ---
 
@@ -71,98 +66,23 @@
 
 1. 一次只聚焦一个主任务
 2. 文档描述必须与代码能力对齐
-3. 所有新实现都要能说明：它如何服务 fake → real runner 演进主线
-4. 若文档过多，优先统一入口，不盲目删除历史文档
+3. 本轮默认不扩新能力，只收口 contract
+4. 若测试暴露问题，优先最小修补现有接口装配，不新增新字段和新行为
 
 ---
 
 ## 6. 建议的接手动作顺序
 
-1. 读取 `STATUS.md` 与 `PROGRESS.md`，确认项目真实状态
-2. 检查 `git status`，确认当前改动范围
-3. 读取 `src/main.rs` 与 `src/runner/`，确认当前主线是否正在转向 lightpanda runner
-4. 再决定当前轮的唯一主任务
+1. 先读 STATUS.md 与 progress.md，确认当前 contract 收口状态
+2. 再读 docs/api-ops.md / docs/lightpanda-api-task-structure.md / docs/control-plane-and-visibility-mainline.md
+3. 补 tests/integration_api.rs 的一致性与 cancelled 契约测试
+4. 再决定是否需要最小修补 handler / explainability
 
 ---
 
 ## 7. 本计划书与旧文档关系
 
-- `TODO.md`：保留为细粒度待办池
-- `ROADMAP.md`：保留为滚动路线图
-- `CURRENT_TASK.md` / `CURRENT_DIRECTION.md`：保留为阶段性方向文件
-- `PLAN.md`：只做统一收口与当前优先级定义
-
-
-## 额外进展（2026-03-30）
-
-- claim / reclaim 参数化第一版已落地：
-  - `AUTO_OPEN_BROWSER_RUNNER_RECLAIM_SECONDS`
-  - `AUTO_OPEN_BROWSER_RUNNER_HEARTBEAT_SECONDS`
-  - `AUTO_OPEN_BROWSER_RUNNER_CLAIM_RETRY_LIMIT`
-- 当前更适合继续推进的方向是：claim SQL 原子化增强、worker 退避、以及 reclaim / retry / cancel 并发竞争收口。
-
-- claim / reclaim 并发收口第二版已落地：
-  - `claim_next_task()` 使用单条 `CTE + UPDATE ... RETURNING` 原子抢占
-  - worker 空闲与错误场景采用 idle exponential backoff
-  - `/status.worker` 可见 heartbeat / claim retry / idle backoff 参数
-
-- 并发收口第三版已落地：
-  - reclaim 增加 `runner_id IS NOT NULL` 安全条件
-  - `running` 状态下 retry 明确返回 `409 CONFLICT`
-  - 新增对应回归测试，当前调度边界更清晰
-
-- 代理池 V1 骨架已落地：
-  - `proxies` 表
-  - `/proxies` 创建/列表/详情接口
-  - `CreateTaskRequest.network_policy_json`
-  - runner 执行前最小代理解析（`proxy_id` / `region + min_score`）
-  - fake/lightpanda 结果回显 `proxy`，Lightpanda 注入 `LIGHTPANDA_PROXY_*` 环境变量
-
-- 代理健康回写第一版已落地：
-  - success -> `success_count + 1`，刷新 `last_used_at / last_checked_at / updated_at`
-  - failed -> `failure_count + 1`，写入短 `cooldown_until`
-  - timed_out -> `failure_count + 1`，写入更长 `cooldown_until`
-
-- 代理选择策略第一版增强已落地：
-  - `provider` 过滤
-  - `cooldown_until` 过滤
-  - 最小版 `sticky_session` 复用
-  - fallback 顺序：sticky > `provider/region/min_score` > `score DESC + last_used_at ASC + created_at ASC`
-
-- 代理观测面增强 + smoke test 第一版已落地：
-  - `/tasks/:id` 与 `/status.latest_tasks` 暴露 `proxy_id / proxy_provider / proxy_region / proxy_resolution_status`
-  - `/status` 新增 `proxy_metrics` 聚合
-  - `POST /proxies/:id/smoke` 做最小 TCP smoke test，并回写 `last_checked_at / failure_count / cooldown_until`
-
-- sticky/provider 正式映射结构第一版已落地：
-  - 新增 `proxy_session_bindings` 表
-  - 执行完成后 upsert `sticky_session -> proxy_id` 绑定
-  - 执行前优先按 binding 命中，并校验 `expires_at / cooldown / provider / region / min_score`
-  - sticky 不再走历史任务 `result_json` 回溯
-
-- HTTP/代理协议层 smoke test 第一版已落地：
-  - `POST /proxies/:id/smoke` 建立 TCP 后发送最小 HTTP CONNECT 探针
-  - `ProxySmokeResponse` 新增 `protocol_ok`
-  - 成功标准从“端口通”提升到“能收到 HTTP-like 代理响应”
-
-- lease TTL / reclaim / worker backoff 再收口已落地：
-  - stale running reclaim 改为批量 `UPDATE ... RETURNING`
-  - worker idle backoff 增加轻量 jitter
-  - error backoff 增加独立上限控制
-
-- 环境变量与状态暴露文档已收口：
-  - worker 调度相关环境变量：heartbeat / reclaim / claim retry / idle backoff / jitter / error cap
-  - 代理验证相关状态：reachable / protocol_ok / upstream_ok / exit_ip / anonymity_level
-  - proxy 健康模型新增 smoke 写回字段
-
-- 能力清单文档已补齐：后续做阶段总结、对外说明、API 对齐时可直接复用 `CAPABILITIES.md` 作为主索引。
-
-- 匿名性/地区校验链下一步设计已写入 `docs/proxy-verification-next.md`，建议后续按 `smoke -> verify -> score writeback` 三段式推进。
-
-- 当前阶段总结文档已形成，后续若继续推进实现，可直接从 `STAGE_SUMMARY_2026-03-31.md` 的下一阶段主线衔接。
-
-- API / 运维文档第一版已落地，后续若继续做对外说明或运维手册，可在 `docs/api-ops.md` 基础上继续细化请求/响应示例。
-
-- `docs/proxy-batch-verify-plan.md` 已写出 batch verify / periodic inspection 方案，推荐采用“批量接口只负责投递 verify task，执行仍走现有队列”的 DB-first 路线。
-
-- verify / selection / batch verify 说明文档已补齐，后续如果继续实现 `verify_proxy` task kind 或 `verify-batch` 接口，可直接以 `docs/proxy-verification-reference.md` 和 `docs/proxy-batch-verify-plan.md` 为准。
+- TODO.md：保留为细粒度待办池
+- ROADMAP.md：保留为滚动路线图
+- CURRENT_TASK.md / CURRENT_DIRECTION.md：保留为阶段性方向文件
+- PLAN.md：只做统一收口与当前优先级定义

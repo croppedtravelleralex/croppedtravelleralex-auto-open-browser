@@ -23,7 +23,7 @@ fn perf_probe_log(event: &str, fields: &[(&str, String)]) {
     }
 }
 
-use super::dto::{CandidateRankPreviewItem, ConsumptionExplain, FingerprintRuntimeExplain, IdentityNetworkExplain, ProxySelectionExplain, SummaryArtifactResponse, TaskResponse, WinnerVsRunnerUpDiff};
+use super::dto::{CandidateRankPreviewItem, ConsumptionExplain, ExecutionIdentity, FingerprintRuntimeExplain, IdentityNetworkExplain, ProxySelectionExplain, SummaryArtifactResponse, TaskResponse, WinnerVsRunnerUpDiff};
 
 fn parse_result_json(result_json: Option<&str>) -> Option<Value> {
     result_json.and_then(|raw| serde_json::from_str::<Value>(raw).ok())
@@ -196,6 +196,7 @@ pub struct TaskExplainability {
     pub selection_reason_summary: Option<String>,
     pub selection_explain: Option<ProxySelectionExplain>,
     pub fingerprint_runtime_explain: Option<FingerprintRuntimeExplain>,
+    pub execution_identity: ExecutionIdentity,
     pub identity_network_explain: Option<IdentityNetworkExplain>,
     pub winner_vs_runner_up_diff: Option<WinnerVsRunnerUpDiff>,
     pub failure_scope: Option<String>,
@@ -801,7 +802,25 @@ pub fn build_task_explainability(
     let selection_reason_summary = selection_reason_summary_from_parsed(parsed_ref);
     let selection_explain = selection_explain_from_parsed(parsed_ref);
     let fingerprint_runtime_explain = fingerprint_runtime_explain_from_parsed(parsed_ref);
+    let execution_identity = ExecutionIdentity {
+        fingerprint_profile_id: fingerprint_profile_id.map(str::to_string),
+        fingerprint_profile_version,
+        fingerprint_resolution_status: fingerprint_resolution_status_from_parsed(
+            fingerprint_profile_id,
+            fingerprint_profile_version,
+            parsed_ref,
+        ),
+        fingerprint_runtime_explain: fingerprint_runtime_explain.clone(),
+        proxy_id: proxy_id.clone(),
+        proxy_provider: proxy_provider.clone(),
+        proxy_region: proxy_region.clone(),
+        proxy_resolution_status: proxy_resolution_status.clone(),
+        selection_reason_summary: selection_reason_summary.clone(),
+        selection_explain: selection_explain.clone(),
+        trust_score_total,
+    };
     let identity_network_explain = Some(IdentityNetworkExplain {
+        execution_identity: execution_identity.clone(),
         selection_explain: selection_explain.clone(),
         fingerprint_runtime_explain: fingerprint_runtime_explain.clone(),
         proxy_id: proxy_id.clone(),
@@ -828,11 +847,7 @@ pub fn build_task_explainability(
     let browser_failure_signal = content_string_field(parsed_ref, "browser_failure_signal");
 
     TaskExplainability {
-        fingerprint_resolution_status: fingerprint_resolution_status_from_parsed(
-            fingerprint_profile_id,
-            fingerprint_profile_version,
-            parsed_ref,
-        ),
+        fingerprint_resolution_status: execution_identity.fingerprint_resolution_status.clone(),
         proxy_id,
         proxy_provider,
         proxy_region,
@@ -841,6 +856,7 @@ pub fn build_task_explainability(
         selection_reason_summary,
         selection_explain,
         fingerprint_runtime_explain,
+        execution_identity,
         identity_network_explain,
         winner_vs_runner_up_diff,
         failure_scope,
@@ -964,6 +980,8 @@ mod tests {
             "content_length": 24,
             "content_ready": true,
             "content_preview": "example preview text",
+            "failure_scope": "browser_execution",
+            "browser_failure_signal": "browser_navigation_failure_signal",
             "summary_artifacts": [{
                 "category": "weird",
                 "title": "fake runner summary",
@@ -980,7 +998,7 @@ mod tests {
     fn summary_artifacts_normalize_fields_and_inject_selection_decision() {
         let raw = sample_result_json_without_selection_artifact();
         let artifacts = summary_artifacts(Some(&raw));
-        assert_eq!(artifacts.len(), 5);
+        assert_eq!(artifacts.len(), 6);
 
         let runner = artifacts.iter().find(|a| a.title == "fake runner summary").expect("runner artifact");
         assert_eq!(runner.category, "summary");
@@ -1111,6 +1129,19 @@ mod tests {
                 selection_reason_summary: None,
                 selection_explain: None,
                 fingerprint_runtime_explain: None,
+                execution_identity: Some(crate::api::dto::ExecutionIdentity {
+                    fingerprint_profile_id: None,
+                    fingerprint_profile_version: None,
+                    fingerprint_resolution_status: None,
+                    fingerprint_runtime_explain: None,
+                    proxy_id: None,
+                    proxy_provider: None,
+                    proxy_region: None,
+                    proxy_resolution_status: None,
+                    selection_reason_summary: None,
+                    selection_explain: None,
+                    trust_score_total: None,
+                }),
                 identity_network_explain: None,
                 winner_vs_runner_up_diff: None,
                 failure_scope: None,
@@ -1186,6 +1217,19 @@ mod tests {
                 selection_reason_summary: None,
                 selection_explain: None,
                 fingerprint_runtime_explain: None,
+                execution_identity: Some(crate::api::dto::ExecutionIdentity {
+                    fingerprint_profile_id: None,
+                    fingerprint_profile_version: None,
+                    fingerprint_resolution_status: None,
+                    fingerprint_runtime_explain: None,
+                    proxy_id: None,
+                    proxy_provider: None,
+                    proxy_region: None,
+                    proxy_resolution_status: None,
+                    selection_reason_summary: None,
+                    selection_explain: None,
+                    trust_score_total: None,
+                }),
                 identity_network_explain: None,
                 winner_vs_runner_up_diff: None,
                 failure_scope: None,
@@ -1253,6 +1297,19 @@ mod tests {
                 selection_reason_summary: None,
                 selection_explain: None,
                 fingerprint_runtime_explain: None,
+                execution_identity: Some(crate::api::dto::ExecutionIdentity {
+                    fingerprint_profile_id: None,
+                    fingerprint_profile_version: None,
+                    fingerprint_resolution_status: None,
+                    fingerprint_runtime_explain: None,
+                    proxy_id: None,
+                    proxy_provider: None,
+                    proxy_region: None,
+                    proxy_resolution_status: None,
+                    selection_reason_summary: None,
+                    selection_explain: None,
+                    trust_score_total: None,
+                }),
                 identity_network_explain: None,
                 winner_vs_runner_up_diff: None,
                 failure_scope: None,
@@ -1285,6 +1342,19 @@ mod tests {
                 selection_reason_summary: None,
                 selection_explain: None,
                 fingerprint_runtime_explain: None,
+                execution_identity: Some(crate::api::dto::ExecutionIdentity {
+                    fingerprint_profile_id: None,
+                    fingerprint_profile_version: None,
+                    fingerprint_resolution_status: None,
+                    fingerprint_runtime_explain: None,
+                    proxy_id: None,
+                    proxy_provider: None,
+                    proxy_region: None,
+                    proxy_resolution_status: None,
+                    selection_reason_summary: None,
+                    selection_explain: None,
+                    trust_score_total: None,
+                }),
                 identity_network_explain: None,
                 winner_vs_runner_up_diff: None,
                 failure_scope: None,
@@ -1317,6 +1387,19 @@ mod tests {
                 selection_reason_summary: None,
                 selection_explain: None,
                 fingerprint_runtime_explain: None,
+                execution_identity: Some(crate::api::dto::ExecutionIdentity {
+                    fingerprint_profile_id: None,
+                    fingerprint_profile_version: None,
+                    fingerprint_resolution_status: None,
+                    fingerprint_runtime_explain: None,
+                    proxy_id: None,
+                    proxy_provider: None,
+                    proxy_region: None,
+                    proxy_resolution_status: None,
+                    selection_reason_summary: None,
+                    selection_explain: None,
+                    trust_score_total: None,
+                }),
                 identity_network_explain: None,
                 winner_vs_runner_up_diff: None,
                 failure_scope: None,
@@ -1369,7 +1452,7 @@ mod tests {
         assert!(explain.winner_vs_runner_up_diff.is_some());
         assert_eq!(explain.failure_scope.as_deref(), Some("browser_execution"));
         assert_eq!(explain.browser_failure_signal.as_deref(), Some("browser_navigation_failure_signal"));
-        assert_eq!(explain.summary_artifacts.len(), 5);
+        assert_eq!(explain.summary_artifacts.len(), 6);
         assert!(explain.summary_artifacts.iter().all(|a| a.task_id.as_deref() == Some("task-1")));
         assert!(explain.summary_artifacts.iter().all(|a| a.task_kind.as_deref() == Some("open_page")));
         assert!(explain.summary_artifacts.iter().all(|a| a.task_status.as_deref() == Some("succeeded")));

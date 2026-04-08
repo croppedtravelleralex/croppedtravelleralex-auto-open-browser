@@ -121,6 +121,7 @@ pub struct RunnerCancelResult {
 pub enum RunnerOutcomeStatus {
     Succeeded,
     Failed,
+    Cancelled,
     TimedOut,
 }
 

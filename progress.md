@@ -1,28 +1,25 @@
 # Progress
 
-## 2026-04-06 Session
-- 识别到用户当前新诉求已从 `lightpanda-automation` 内部 browser/status 展示主线，切到一个更外部但更值的工程问题：
-  - 使用 `agent.alexstudio.top` 构建 API 中转站
-  - 目标是把上游额度链包装成“本人测试可用、风险可控”的私用网关
-- 使用 Cloudflare 凭据查到了当前账号下的两个 zone：
-  - `alexstudio.top`
-  - `chihuolingrang.de5.net`
-- 已为 `alexstudio.top` 创建并验证 5 个 AI 相关子域名，全部橙云 CNAME 指向主域：
-  - `agent.alexstudio.top`
-  - `model.alexstudio.top`
-  - `chat.alexstudio.top`
-  - `vector.alexstudio.top`
-  - `lab.alexstudio.top`
-- 已与用户对齐：当前真正要做的不是“开放 API 平台”，而是“本人测试可用的受控私用网关”。
-- 已完成一轮风险建模：
-  - 上游额度链风险
-  - 下游 token 泄露风险
-  - 日志泄露风险
-  - 限流/来源约束缺失风险
-  - Cloudflare 仅是入口，不是业务级安全边界
-- 已创建新的 planning files 任务框架，准备进入网关架构设计阶段。
+## 2026-04-07 Session
+- 已完成对远程 Ubuntu 项目 lightpanda-automation 的接管盘点：确认主目录、git 工作树、关键文档、运行进程、监听端口、健康接口。
+- 已确认服务在线：AutoOpenBrowser 正在 127.0.0.1:3000 提供 /health 与 /status。
+- 已完成 ExecutionIdentity V1 的主链接线：task detail / runs / status 已统一暴露 execution_identity。
+- 已完成 running cancel 的真实 API 闭环验证：running task 取消后正式进入 cancelled 终态。
+- 已确认取消链路正式语义：
+  - status=cancelled
+  - error_kind=runner_cancelled
+  - failure_scope=runner_cancelled
+  - detail / runs / status 均可围绕同一 cancelled 语义消费结果
+- 已确认当前 80% -> 85% 的唯一主线不是继续扩新功能，而是 Task Contract / Control-Plane Visibility V1 收口。
+- 已完成 contract 主文档改写：开始把 execution_identity、cancelled、/status vs detail/runs 职责分层写回文档口径。
 
 ## Current Focus
-- 为 `agent.alexstudio.top` 设计最小安全网关方案。
-- 先收敛：鉴权、限流、日志、header 清洗、上游/下游边界。
-- 然后再决定是否进入落地实现与新目录/新项目创建。
+- 收口 docs/lightpanda-api-task-structure.md、docs/api-ops.md、docs/control-plane-and-visibility-mainline.md。
+- 同步 STATUS.md、TODO.md、CURRENT_TASK.md、progress.md、PLAN.md 到 contract 主线口径。
+- 在 tests/integration_api.rs 增加最小三面一致性与 cancelled 契约测试。
+
+## Next Step
+1. 完成剩余阶段文档同步，明确当前主线已切到 Task Contract / Control-Plane Visibility V1。
+2. 在 tests/integration_api.rs 增加 /status + detail + runs 一致性验证样本。
+3. 增加 cancelled 契约验证样本，固定 runner_cancelled 的正式对外语义。
+4. 跑远程测试与 curl 验收，确认文档、接口、测试完全对齐。

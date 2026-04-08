@@ -1,94 +1,130 @@
-# API and Ops Notes
+# API Operations Guide
 
-## Core API surface
+This guide is the operator-facing acceptance flow for Task Contract / Control-Plane Visibility V1.
 
-### Health / status
-- `GET /health`
-- `GET /status`
+## Goals
 
-### Browser-facing API v1
-- `POST /browser/open`
-  - maps to task kind: `open_page`
-- `POST /browser/html`
-  - maps to task kind: `get_html`
-- `POST /browser/title`
-  - maps to task kind: `get_title`
-- `POST /browser/final-url`
-  - maps to task kind: `get_final_url`
-- `POST /browser/text`
-  - maps to task kind: `extract_text`
+Use this flow to validate that:
+- task creation works
+- task detail reflects the canonical task state
+- task runs reflects per-attempt state
+- /status reflects the same execution contract at system level
+- cancellation closes as `status=cancelled` with `failure_scope=runner_cancelled`
 
-Current browser-facing API v1 contract:
-- all endpoints accept `url`
-- optional fields: `timeout_seconds`, `priority`, `fingerprint_profile_id`, `proxy_id`, `network_policy_json`
-- current product shape: browser-facing API is the external entry surface; task queue remains the underlying control plane
+---
 
-Current result-shape notes:
-- `get_html` currently returns `content_kind=text/html` plus `html_preview`, `html_length`, `html_truncated`
-- `extract_text` currently returns `content_kind=text/plain` plus `text_preview`, `text_length`, `text_truncated`
-- both content-oriented actions now also expose unified fields: `content_preview`, `content_length`, `content_truncated`
-- richer content contract fields now include: `content_encoding`, `content_source_action`, `content_ready`
-- result depth is still evolving; current previews are useful for lightweight inspection, not yet the final rich content contract
+## Base URL
 
-### Tasks
-- `POST /tasks`
-- `GET /tasks/:id`
-- `POST /tasks/:id/retry`
-- `POST /tasks/:id/cancel`
-- `GET /tasks/:id/runs`
-- `GET /tasks/:id/logs`
+```bash
+BASE_URL=http://127.0.0.1:3000
+```
 
-### Fingerprint profiles
-- `POST /fingerprint-profiles`
-- `GET /fingerprint-profiles`
-- `GET /fingerprint-profiles/:id`
+---
 
-### Proxies
-- `POST /proxies`
-- `GET /proxies`
-- `GET /proxies/:id`
-- `POST /proxies/:id/smoke`
+## 1. Create a task
 
-## Proxy smoke response fields
-- `reachable`
-- `protocol_ok`
-- `upstream_ok`
-- `exit_ip`
-- `anonymity_level`
-- `latency_ms`
-- `status`
-- `message`
+```bash
+curl -s -X POST "$BASE_URL/tasks" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "kind": "open_page",
+    "url": "https://example.com",
+    "timeout_seconds": 30,
+    "priority": 0
+  }'
+```
 
-## Persisted proxy verification fields
-- `last_smoke_status`
-- `last_smoke_protocol_ok`
-- `last_smoke_upstream_ok`
-- `last_exit_ip`
-- `last_anonymity_level`
-- `last_smoke_at`
+Expected shape:
+- returns `201 Created`
+- response includes `id`, `kind`, `status=queued`
 
-## Runtime tuning
-### Runner env vars
-- `AUTO_OPEN_BROWSER_RUNNER_CONCURRENCY`
-- `AUTO_OPEN_BROWSER_RUNNER_RECLAIM_SECONDS`
-- `AUTO_OPEN_BROWSER_RUNNER_HEARTBEAT_SECONDS`
-- `AUTO_OPEN_BROWSER_RUNNER_CLAIM_RETRY_LIMIT`
-- `AUTO_OPEN_BROWSER_RUNNER_IDLE_BACKOFF_MIN_MS`
-- `AUTO_OPEN_BROWSER_RUNNER_IDLE_BACKOFF_MAX_MS`
-- `AUTO_OPEN_BROWSER_RUNNER_IDLE_BACKOFF_JITTER_MS`
-- `AUTO_OPEN_BROWSER_RUNNER_ERROR_BACKOFF_MAX_MS`
+Save the returned task id:
 
-## Current ops guidance
-- Prefer `/status` for top-level system view
-- Use task detail + runs + logs for incident drill-down
-- Use proxy `smoke` before promoting uncertain proxies
-- Treat `transparent` anonymity as lower trust than `anonymous` / `elite`
-- Reclaim-related tests that only verify state transitions should avoid background worker noise
+```bash
+TASK_ID=<task-id>
+```
 
-## Known current limitations
-- browser-facing API v1 currently focuses on entry unification; result-shape depth is still evolving
-- runner support is still staged, not a full rich browser automation surface yet
-- proxy verification is still V1 and not a full external probe chain
-- no dedicated `/proxies/:id/verify` slow path yet
-- proxy selection is still light query-based ordering
-- status metrics are not yet a fully separate stats subsystem
+---
+
+## 2. Inspect task detail
+
+```bash
+curl -s "$BASE_URL/tasks/$TASK_ID"
+```
+
+Check for:
+- canonical `status`
+- `execution_identity`
+- `failure_scope`
+- `summary_artifacts`
+- browser content summary fields when present
+
+---
+
+## 3. Inspect task runs
+
+```bash
+curl -s "$BASE_URL/tasks/$TASK_ID/runs"
+```
+
+Check for:
+- run `status`
+- run-level `execution_identity`
+- run-level `failure_scope`
+- run-level `summary_artifacts`
+
+---
+
+## 4. Inspect status snapshot
+
+```bash
+curl -s "$BASE_URL/status"
+```
+
+Check for:
+- top-level `counts`
+- `latest_tasks`
+- `latest_browser_tasks`
+- `latest_execution_summaries`
+- same `execution_identity` / `failure_scope` / `summary_artifacts` semantics when the task is surfaced here
+
+---
+
+## 5. Cancel a running task
+
+```bash
+curl -s -X POST "$BASE_URL/tasks/$TASK_ID/cancel"
+```
+
+Expected cancel contract:
+- task closes with `status=cancelled`
+- cancellation reason is exposed as `failure_scope=runner_cancelled`
+- runner/result vocabulary uses `error_kind=runner_cancelled`
+
+---
+
+## 6. Re-check detail, runs, and status
+
+```bash
+curl -s "$BASE_URL/tasks/$TASK_ID"
+curl -s "$BASE_URL/tasks/$TASK_ID/runs"
+curl -s "$BASE_URL/status"
+```
+
+Verify the shared contract:
+- detail shows `status=cancelled`
+- runs shows the cancelled run with `status=cancelled`
+- status counts include the cancelled task
+- status/detail/runs agree on `execution_identity`
+- status/detail/runs agree on `failure_scope=runner_cancelled`
+- `summary_artifacts` contain the corresponding cancellation summaries
+
+---
+
+## Acceptance summary
+
+Task Contract / Control-Plane Visibility V1 is accepted when:
+- create -> inspect -> cancel -> inspect works end-to-end
+- `/tasks/:id`, `/tasks/:id/runs`, and `/status` do not disagree on execution identity
+- `cancelled` is the visible terminal state
+- `runner_cancelled` stays a reason-layer contract, not a replacement for task status

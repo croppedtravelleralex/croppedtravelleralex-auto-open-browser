@@ -120,11 +120,11 @@
 - [x] 按规则实现指纹字段优先级分层
 - [x] 按规则实现指纹-代理-地区一致性检查
 - [x] 按规则实现指纹性能预算与并发预算
-- [ ] 同步 `CURRENT_DIRECTION.md` / `CURRENT_TASK.md` / `STATUS.md` / `TODO.md` 到真实 browser 执行主线口径
-- [ ] 稳定真实 browser 执行链第一轮（创建 / 调度 / 执行 / 回写 / 失败定位）
-- [ ] 设计并落地统一执行身份模型（`proxy + fingerprint + session identity`）
+- [x] 同步 `CURRENT_DIRECTION.md` / `CURRENT_TASK.md` / `STATUS.md` / `TODO.md` 到真实 browser 执行主线口径
+- [x] 稳定真实 browser 执行链第一轮（创建 / 调度 / 执行 / 回写 / 失败定位）
+- [x] 设计并落地统一执行身份模型（proxy + fingerprint + session identity）
 - [ ] 把 verify / trust score 从选前判断扩展到执行前 / 执行中 / 执行后闭环
-- [ ] 升级 status / explain / result 为长期运营级控制面第一轮
+- [x] 升级 status / explain / result 为长期运营级控制面第一轮
 - [ ] 继续清 explainability summary / artifact 文案质量
 - [ ] 继续补真实浏览器任务流样本与失败分类
 - [ ] 继续补 selection / verify / runtime / result 的统一 explainability
@@ -137,7 +137,7 @@
 ## P1
 
 - [ ] 设计身份画像系统（Identity Profile）
-- [ ] 设计 SessionIdentity / ExecutionIdentity，把 `proxy + fingerprint + session identity` 收到统一表达
+- [x] 设计 SessionIdentity / ExecutionIdentity，把 proxy + fingerprint + session identity 收到统一表达
 - [ ] 设计站点维度代理适配机制
 - [ ] 设计行为层模拟机制
 - [ ] 设计会话连续性机制
@@ -147,6 +147,10 @@
 - [ ] 压测 proxy selection 查询、status 聚合 SQL 与 verify 批次链路
 - [ ] 继续清理 panic 风险点、锁竞争风险点与 flaky 测试
 - [ ] 继续完善 API / 运维 / 能力说明文档
+- [ ] 收口 Task Contract / Control-Plane Visibility V1 文档
+- [ ] 为 /status / task detail / runs 增加三面一致性测试
+- [ ] 为 running cancel 增加 cancelled contract API 测试
+- [ ] 完成 contract 主线远程验收
 - [ ] 设计持续抓取代理的工具（优先基于开源项目改造）
 - [ ] 设计代理抓取后的清洗、去重、候选入池流程
 - [ ] 设计代理池自生长机制

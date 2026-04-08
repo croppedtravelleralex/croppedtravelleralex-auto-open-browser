@@ -742,6 +742,7 @@ pub async fn status(
                 selection_reason_summary: explainability.selection_reason_summary,
                 selection_explain: explainability.selection_explain,
                 fingerprint_runtime_explain: explainability.fingerprint_runtime_explain,
+                execution_identity: Some(explainability.execution_identity),
                 identity_network_explain: explainability.identity_network_explain,
                 winner_vs_runner_up_diff: explainability.winner_vs_runner_up_diff,
                 failure_scope: explainability.failure_scope,
@@ -1061,6 +1062,9 @@ pub async fn explain_proxy_selection(
         (Some(actual), Some(expected)) => Some(actual.eq_ignore_ascii_case(expected)),
         _ => None,
     };
+    refresh_proxy_trust_views_for_scope(&state.db, &proxy_id, provider.as_deref(), region.as_deref())
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to refresh proxy trust views for explain: {err}")))?;
     let now_ts = now.parse::<i64>().unwrap_or_default();
     let components = super::super::runner::engine::computed_trust_score_components(
         &state.proxy_selection_tuning,
@@ -1162,6 +1166,7 @@ fn create_task_response_from_payload(
             selection_reason_summary: None,
             selection_explain: None,
             fingerprint_runtime_explain: None,
+            execution_identity: None,
             identity_network_explain: None,
             winner_vs_runner_up_diff: None,
             failure_scope: None,
@@ -1398,6 +1403,7 @@ pub async fn get_task(
                 selection_reason_summary: explainability.selection_reason_summary,
                 selection_explain: explainability.selection_explain,
                 fingerprint_runtime_explain: explainability.fingerprint_runtime_explain,
+                execution_identity: Some(explainability.execution_identity),
                 identity_network_explain: explainability.identity_network_explain,
                 winner_vs_runner_up_diff: explainability.winner_vs_runner_up_diff,
                 failure_scope: explainability.failure_scope,
@@ -1488,6 +1494,7 @@ pub async fn get_task_runs(
                         selection_reason_summary: explainability.selection_reason_summary,
                         selection_explain: explainability.selection_explain,
                         fingerprint_runtime_explain: explainability.fingerprint_runtime_explain,
+                        execution_identity: Some(explainability.execution_identity),
                         identity_network_explain: explainability.identity_network_explain,
                         winner_vs_runner_up_diff: explainability.winner_vs_runner_up_diff,
                         failure_scope: explainability.failure_scope,
@@ -1697,9 +1704,20 @@ pub async fn cancel_task(
         }
 
         let finished_at = now_ts_string();
-        sqlx::query(r#"UPDATE tasks SET status = ?, finished_at = ?, runner_id = NULL, heartbeat_at = NULL, error_message = ? WHERE id = ?"#)
+        let cancel_result_json = serde_json::json!({
+            "runner": state.runner.name(),
+            "ok": false,
+            "status": "cancelled",
+            "error_kind": "runner_cancelled",
+            "failure_scope": "runner_cancelled",
+            "task_id": task_id,
+            "message": "task cancelled while running"
+        }).to_string();
+
+        sqlx::query(r#"UPDATE tasks SET status = ?, finished_at = ?, runner_id = NULL, heartbeat_at = NULL, result_json = ?, error_message = ? WHERE id = ?"#)
             .bind(TASK_STATUS_CANCELLED)
             .bind(&finished_at)
+            .bind(&cancel_result_json)
             .bind("task cancelled while running")
             .bind(&task_id)
             .execute(&state.db)
@@ -1728,10 +1746,11 @@ pub async fn cancel_task(
         })?;
 
         if let Some(run_id) = running_run_id.as_deref() {
-            sqlx::query(r#"UPDATE runs SET status = ?, finished_at = ?, error_message = ? WHERE id = ?"#)
+            sqlx::query(r#"UPDATE runs SET status = ?, finished_at = ?, error_message = ?, result_json = COALESCE(result_json, ?) WHERE id = ?"#)
                 .bind(RUN_STATUS_CANCELLED)
                 .bind(&finished_at)
                 .bind("task cancelled while running")
+                .bind(&cancel_result_json)
                 .bind(run_id)
                 .execute(&state.db)
                 .await
