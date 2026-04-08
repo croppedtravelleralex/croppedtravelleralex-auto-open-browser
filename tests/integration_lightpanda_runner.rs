@@ -189,8 +189,8 @@ async fn lightpanda_runner_timeout_marks_timed_out_and_cleans_state() {
     let task = wait_for_terminal_status(&app, &task_id).await;
     assert_eq!(task.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_TIMED_OUT));
 
-    let (task_status, run_status, error_message, runner_id, heartbeat_at): (String, String, Option<String>, Option<String>, Option<String>) =
-        sqlx::query_as(r#"SELECT t.status, r.status, t.error_message, t.runner_id, t.heartbeat_at
+    let (task_status, run_status, result_json_text, error_message, runner_id, heartbeat_at): (String, String, Option<String>, Option<String>, Option<String>, Option<String>) =
+        sqlx::query_as(r#"SELECT t.status, r.status, t.result_json, t.error_message, t.runner_id, t.heartbeat_at
                           FROM tasks t JOIN runs r ON r.task_id = t.id WHERE t.id = ? ORDER BY r.attempt DESC LIMIT 1"#)
             .bind(&task_id)
             .fetch_one(&state.db)
@@ -201,6 +201,9 @@ async fn lightpanda_runner_timeout_marks_timed_out_and_cleans_state() {
     assert!(error_message.unwrap_or_default().contains("timed out"));
     assert!(runner_id.is_none());
     assert!(heartbeat_at.is_none());
+    let result_json: Value = serde_json::from_str(result_json_text.as_deref().expect("result json")).expect("parse timeout result");
+    assert_eq!(result_json.get("failure_scope").and_then(|v| v.as_str()), Some("runner_timeout"));
+    assert_eq!(result_json.get("execution_stage").and_then(|v| v.as_str()), Some("navigate"));
 
     std::env::remove_var("LIGHTPANDA_BIN");
     let _ = std::fs::remove_file(script);
@@ -235,6 +238,7 @@ async fn lightpanda_runner_non_zero_exit_marks_failed() {
     let result_json: Value = serde_json::from_str(result_json_text.as_deref().expect("result json")).expect("parse result");
     assert_eq!(result_json.get("error_kind").and_then(|v| v.as_str()), Some("runner_non_zero_exit"));
     assert_eq!(result_json.get("failure_scope").and_then(|v| v.as_str()), Some("runner_process_exit"));
+    assert_eq!(result_json.get("execution_stage").and_then(|v| v.as_str()), Some("action"));
     assert_eq!(result_json.get("exit_code").and_then(|v| v.as_i64()), Some(42));
     assert!(result_json.get("stderr_preview").and_then(|v| v.as_str()).unwrap_or_default().contains("runner crashed"));
 
@@ -292,6 +296,7 @@ async fn lightpanda_running_cancel_marks_cancelled() {
     assert_eq!(result_json.get("status").and_then(|v| v.as_str()), Some("cancelled"));
     assert_eq!(result_json.get("failure_scope").and_then(|v| v.as_str()), Some("runner_cancelled"));
     assert_eq!(result_json.get("error_kind").and_then(|v| v.as_str()), Some("runner_cancelled"));
+    assert_eq!(result_json.get("execution_stage").and_then(|v| v.as_str()), Some("action"));
 
     std::env::remove_var("LIGHTPANDA_BIN");
     let _ = std::fs::remove_file(script);

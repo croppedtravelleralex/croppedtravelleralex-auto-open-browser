@@ -1710,6 +1710,7 @@ pub async fn cancel_task(
             "status": "cancelled",
             "error_kind": "runner_cancelled",
             "failure_scope": "runner_cancelled",
+            "execution_stage": "action",
             "task_id": task_id,
             "message": "task cancelled while running"
         }).to_string();

@@ -559,6 +559,10 @@ fn browser_failure_summary_artifact_from_parsed(parsed: Option<&Value>) -> Optio
         .and_then(|value| value.get("error_kind"))
         .and_then(|value| value.as_str())
         .unwrap_or("none");
+    let execution_stage = parsed
+        .and_then(|value| value.get("execution_stage"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("none");
 
     let severity = if failure_scope == "runner_timeout" || failure_scope == "browser_execution" {
         "error"
@@ -573,8 +577,8 @@ fn browser_failure_summary_artifact_from_parsed(parsed: Option<&Value>) -> Optio
         severity: severity.to_string(),
         title: "browser failure summary".to_string(),
         summary: format!(
-            "failure_scope={} browser_failure_signal={} status={} error_kind={}",
-            failure_scope, browser_failure_signal, status, error_kind
+            "failure_scope={} browser_failure_signal={} execution_stage={} status={} error_kind={}",
+            failure_scope, browser_failure_signal, execution_stage, status, error_kind
         ),
         task_id: None,
         task_kind: None,

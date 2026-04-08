@@ -1466,6 +1466,59 @@ async fn proxy_health_is_updated_after_success_and_timeout() {
 
 
 #[tokio::test]
+async fn proxy_health_is_not_penalized_after_cancelled_execution() {
+    let db_url = unique_db_url();
+    let (state, app) = build_test_app(&db_url).await.expect("build app");
+
+    sqlx::query(r#"INSERT INTO proxies (id, scheme, host, port, username, password, region, country, provider, status, score, success_count, failure_count, last_checked_at, last_used_at, cooldown_until, created_at, updated_at) VALUES ('proxy-health-cancel', 'http', '127.0.0.1', 8080, NULL, NULL, 'us-east', 'US', 'manual', 'active', 0.95, 2, 1, NULL, NULL, NULL, '1', '1')"#)
+        .execute(&state.db)
+        .await
+        .expect("insert proxy");
+
+    let payload = serde_json::json!({
+        "kind": "open_page",
+        "url": "https://example.com",
+        "timeout_seconds": 5,
+        "network_policy_json": {"mode": "required_proxy", "proxy_id": "proxy-health-cancel"}
+    });
+    let (_, json) = json_response(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/tasks")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .expect("request"),
+    )
+    .await;
+    let task_id = json.get("id").and_then(|v| v.as_str()).expect("task id").to_string();
+
+    let (cancel_status, cancel_json) = json_response(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri(format!("/tasks/{task_id}/cancel"))
+            .body(Body::empty())
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(cancel_status, StatusCode::OK);
+    assert_eq!(cancel_json.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_CANCELLED));
+
+    let task = wait_for_terminal_status(&app, &task_id).await;
+    assert_eq!(task.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_CANCELLED));
+
+    let (success_count, failure_count, cooldown_until): (i64, i64, Option<String>) =
+        sqlx::query_as(r#"SELECT success_count, failure_count, cooldown_until FROM proxies WHERE id = 'proxy-health-cancel'"#)
+            .fetch_one(&state.db)
+            .await
+            .expect("load proxy after cancel");
+    assert_eq!(success_count, 2);
+    assert_eq!(failure_count, 1);
+    assert!(cooldown_until.is_none());
+}
+
+#[tokio::test]
 async fn proxy_selection_filters_provider_and_cooldown() {
     let db_url = unique_db_url();
     let (state, app) = build_test_app(&db_url).await.expect("build app");
@@ -3078,6 +3131,7 @@ async fn task_and_run_views_expose_browser_failure_signal_fields() {
         "error_kind": "runner_non_zero_exit",
         "failure_scope": "browser_execution",
         "browser_failure_signal": "browser_navigation_failure_signal",
+        "execution_stage": "navigate",
         "summary_artifacts": [{
             "key": "open_page.execution",
             "source": "runner.lightpanda",
@@ -3102,6 +3156,7 @@ async fn task_and_run_views_expose_browser_failure_signal_fields() {
         "error_kind": "runner_non_zero_exit",
         "failure_scope": "browser_execution",
         "browser_failure_signal": "browser_navigation_failure_signal",
+        "execution_stage": "navigate",
         "summary_artifacts": [{
             "key": "open_page.execution",
             "source": "runner.lightpanda",
@@ -3125,6 +3180,7 @@ async fn task_and_run_views_expose_browser_failure_signal_fields() {
     .await;
     assert_eq!(task_json.get("failure_scope").and_then(|v| v.as_str()), Some("browser_execution"));
     assert_eq!(task_json.get("browser_failure_signal").and_then(|v| v.as_str()), Some("browser_navigation_failure_signal"));
+    assert_eq!(task_json.get("summary_artifacts").and_then(|v| v.as_array()).and_then(|items| items.iter().find(|item| item.get("title").and_then(|v| v.as_str()) == Some("browser failure summary"))).and_then(|item| item.get("summary")).and_then(|v| v.as_str()).map(|s| s.contains("execution_stage=navigate")), Some(true));
 
     let (_, runs_json) = json_response(
         &app,
@@ -3137,6 +3193,7 @@ async fn task_and_run_views_expose_browser_failure_signal_fields() {
     let runs = runs_json.as_array().expect("runs array");
     assert_eq!(runs[0].get("failure_scope").and_then(|v| v.as_str()), Some("browser_execution"));
     assert_eq!(runs[0].get("browser_failure_signal").and_then(|v| v.as_str()), Some("browser_navigation_failure_signal"));
+    assert_eq!(runs[0].get("summary_artifacts").and_then(|v| v.as_array()).and_then(|items| items.iter().find(|item| item.get("title").and_then(|v| v.as_str()) == Some("browser failure summary"))).and_then(|item| item.get("summary")).and_then(|v| v.as_str()).map(|s| s.contains("execution_stage=navigate")), Some(true));
 }
 
 #[tokio::test]
@@ -3153,13 +3210,14 @@ async fn status_latest_execution_summaries_include_browser_failure_artifact() {
         "error_kind": "runner_non_zero_exit",
         "failure_scope": "browser_execution",
         "browser_failure_signal": "browser_navigation_failure_signal",
+        "execution_stage": "navigate",
         "summary_artifacts": [{
             "key": "open_page.execution",
             "source": "runner.lightpanda",
             "category": "execution",
             "severity": "error",
             "title": "open_page failed",
-            "summary": "failure_scope=browser_execution browser_failure_signal=browser_navigation_failure_signal"
+            "summary": "failure_scope=browser_execution browser_failure_signal=browser_navigation_failure_signal execution_stage=navigate"
         }]
     }).to_string())
     .execute(&state.db)
@@ -3176,6 +3234,7 @@ async fn status_latest_execution_summaries_include_browser_failure_artifact() {
     let failure_summary = browser_failure.get("summary").and_then(|v| v.as_str()).unwrap_or("");
     assert!(failure_summary.contains("failure_scope=browser_execution"));
     assert!(failure_summary.contains("browser_failure_signal=browser_navigation_failure_signal"));
+    assert!(failure_summary.contains("execution_stage=navigate"));
     assert_eq!(browser_failure.get("severity").and_then(|v| v.as_str()), Some("error"));
 }
 
@@ -4744,6 +4803,7 @@ async fn cancelled_contract_is_visible_across_status_detail_and_runs() {
         "status": "cancelled",
         "error_kind": "runner_cancelled",
         "failure_scope": "runner_cancelled",
+        "execution_stage": "action",
         "task_id": task_id,
         "message": "task cancelled while running"
     }).to_string();
@@ -4783,6 +4843,7 @@ async fn cancelled_contract_is_visible_across_status_detail_and_runs() {
     assert_eq!(task_json.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_CANCELLED));
     assert_eq!(task_json.get("failure_scope").and_then(|v| v.as_str()), Some("runner_cancelled"));
     assert_eq!(task_json.get("summary_artifacts").and_then(|v| v.as_array()).map(|v| !v.is_empty()), Some(true));
+    assert_eq!(task_json.get("summary_artifacts").and_then(|v| v.as_array()).and_then(|items| items.iter().find(|item| item.get("title").and_then(|v| v.as_str()) == Some("browser failure summary"))).and_then(|item| item.get("summary")).and_then(|v| v.as_str()).map(|s| s.contains("execution_stage=action")), Some(true));
     let task_execution_identity = task_json
         .get("execution_identity")
         .cloned()
@@ -4804,6 +4865,7 @@ async fn cancelled_contract_is_visible_across_status_detail_and_runs() {
     assert_eq!(run.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_CANCELLED));
     assert_eq!(run.get("failure_scope").and_then(|v| v.as_str()), Some("runner_cancelled"));
     assert_eq!(run.get("execution_identity"), Some(&task_execution_identity));
+    assert_eq!(run.get("summary_artifacts").and_then(|v| v.as_array()).and_then(|items| items.iter().find(|item| item.get("title").and_then(|v| v.as_str()) == Some("browser failure summary"))).and_then(|item| item.get("summary")).and_then(|v| v.as_str()).map(|s| s.contains("execution_stage=action")), Some(true));
     let run_summary_artifacts = run.get("summary_artifacts").and_then(|v| v.as_array()).expect("run summary artifacts");
     let task_summary_artifacts = task_json.get("summary_artifacts").and_then(|v| v.as_array()).expect("task summary artifacts");
     assert!(!run_summary_artifacts.is_empty());
@@ -4829,6 +4891,7 @@ async fn cancelled_contract_is_visible_across_status_detail_and_runs() {
     assert_eq!(latest_task.get("status").and_then(|v| v.as_str()), Some(TASK_STATUS_CANCELLED));
     assert_eq!(latest_task.get("failure_scope").and_then(|v| v.as_str()), Some("runner_cancelled"));
     assert_eq!(latest_task.get("execution_identity"), Some(&task_execution_identity));
+    assert_eq!(latest_task.get("summary_artifacts").and_then(|v| v.as_array()).and_then(|items| items.iter().find(|item| item.get("title").and_then(|v| v.as_str()) == Some("browser failure summary"))).and_then(|item| item.get("summary")).and_then(|v| v.as_str()).map(|s| s.contains("execution_stage=action")), Some(true));
 
     let latest_execution_summaries = status_json
         .get("latest_execution_summaries")
@@ -4839,7 +4902,7 @@ async fn cancelled_contract_is_visible_across_status_detail_and_runs() {
             && item
                 .get("summary")
                 .and_then(|v| v.as_str())
-                .map(|s| s.contains("failure_scope=runner_cancelled") || s.contains("runner_cancelled"))
+                .map(|s| (s.contains("failure_scope=runner_cancelled") || s.contains("runner_cancelled")) && s.contains("execution_stage=action"))
                 .unwrap_or(false)
     }));
 }

@@ -105,6 +105,7 @@ fn result_payload(
     error_kind: Option<&str>,
     failure_scope: Option<&str>,
     browser_failure_signal: Option<&str>,
+    execution_stage: Option<&str>,
     requested_action: &str,
     action: &str,
     task: &RunnerTask,
@@ -221,6 +222,7 @@ fn result_payload(
         "error_kind": error_kind,
         "failure_scope": failure_scope,
         "browser_failure_signal": browser_failure_signal,
+        "execution_stage": execution_stage,
         "task_id": task.task_id,
         "attempt": task.attempt,
         "kind": task.kind,
@@ -283,6 +285,14 @@ fn build_result(
             matches!(outcome, RunnerOutcomeStatus::TimedOut),
         )),
     };
+    let execution_stage = classify_execution_stage(
+        outcome,
+        error_kind,
+        browser_failure_signal,
+        action,
+        stdout_preview.as_deref(),
+        stderr_preview.as_deref(),
+    );
     let (_, html_length, _) = html_preview_metadata(stdout_preview.as_deref(), action);
     let (_, text_length, _) = text_preview_metadata(stdout_preview.as_deref(), action);
 
@@ -294,6 +304,7 @@ fn build_result(
             error_kind,
             failure_scope,
             browser_failure_signal,
+            execution_stage,
             requested_action,
             action,
             task,
@@ -318,10 +329,11 @@ fn build_result(
             },
             title: execution_summary_title(action, status, error_kind),
             summary: format!(
-                "{} failure_scope={} browser_failure_signal={} content_kind={} html_length={} text_length={}",
+                "{} failure_scope={} browser_failure_signal={} execution_stage={} content_kind={} html_length={} text_length={}",
                 execution_summary_text(action, task, status, error_kind, exit_code, timeout_seconds, &message),
                 failure_scope.unwrap_or("none"),
                 browser_failure_signal.unwrap_or("none"),
+                execution_stage.unwrap_or("none"),
                 match action {
                     "get_html" => "text/html",
                     "extract_text" => "text/plain",
@@ -520,6 +532,41 @@ fn runner_failure_scope(error_kind: Option<&str>, browser_failure_signal: Option
             Some("process_wait_failed") => "runner_process_wait",
             Some("runner_command_not_found") | Some("runner_invocation_not_executable") | Some("runner_terminated_by_signal") | Some("runner_non_zero_exit") => "runner_process_exit",
             _ => "runner_execution",
+        }
+    }
+}
+
+fn classify_execution_stage(
+    outcome: RunnerOutcomeStatus,
+    error_kind: Option<&str>,
+    browser_failure_signal: Option<&str>,
+    action: &str,
+    stdout_preview: Option<&str>,
+    stderr_preview: Option<&str>,
+) -> Option<&'static str> {
+    let has_output_preview = stdout_preview.is_some_and(|value| !value.trim().is_empty());
+    let is_content_action = matches!(action, "get_html" | "extract_text");
+
+    match outcome {
+        RunnerOutcomeStatus::Succeeded => Some(if is_content_action { "output_wait" } else { "action" }),
+        RunnerOutcomeStatus::Cancelled => Some("action"),
+        RunnerOutcomeStatus::TimedOut => Some(if is_content_action && has_output_preview {
+            "output_wait"
+        } else {
+            "navigate"
+        }),
+        RunnerOutcomeStatus::Failed => {
+            if matches!(error_kind, Some("binary_not_found" | "spawn_permission_denied" | "spawn_failed" | "runner_command_not_found" | "runner_invocation_not_executable")) {
+                Some("launch")
+            } else if matches!(browser_failure_signal, Some("browser_navigation_failure_signal" | "browser_dns_failure_signal" | "browser_tls_failure_signal")) {
+                Some("navigate")
+            } else if browser_failure_signal == Some("browser_timeout_signal") || (is_content_action && has_output_preview) {
+                Some("output_wait")
+            } else if error_kind == Some("process_wait_failed") || stderr_preview.is_some_and(|value| !value.trim().is_empty()) {
+                Some("action")
+            } else {
+                Some("action")
+            }
         }
     }
 }
