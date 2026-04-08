@@ -28,6 +28,9 @@
 - 已补 stable browser_execution 半真实样本基线，当前已可稳定复现并验证 browser_navigation_failure_signal / browser_dns_failure_signal / browser_tls_failure_signal，且三者均落成 failure_scope=browser_execution + execution_stage=navigate。
 - 已补 succeeded 对照样本，当前 browser_execution 长期回归矩阵已覆盖 navigation / dns / tls / succeeded，并可稳定区分成功样本与 browser failure signal 样本。
 - 已复跑 explainability 三面回归，确认 task detail / runs / status 对 browser failure evidence 的投影在 navigation / dns / tls 样本下仍保持一致。
+- 已完成本轮长期回归矩阵复跑，确认 succeeded / navigation / dns / tls 样本持续稳定通过，且 trust feedback 边界与 explainability 三面回归均未回退。
+- 已补齐 cancelled / no-evidence-timeout / staged-timeout 边界复跑，当前 success / browser_execution / cancelled / timeout 的长期矩阵基线已全部打通，且边界行为与预期保持一致。
+- 已完成最终对照验收复跑，确认完整矩阵在 /tasks/:id / /tasks/:id/runs / /status 的 explainability 投影与 trust feedback 边界均保持稳定，当前主线已进入最终收口状态。
   - lightpanda_runner_timeout_marks_timed_out_and_cleans_state
   - lightpanda_runner_non_zero_exit_marks_failed
   - task_and_run_views_expose_browser_failure_signal_fields
