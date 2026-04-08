@@ -147,10 +147,10 @@
 - [ ] 压测 proxy selection 查询、status 聚合 SQL 与 verify 批次链路
 - [ ] 继续清理 panic 风险点、锁竞争风险点与 flaky 测试
 - [ ] 继续完善 API / 运维 / 能力说明文档
-- [ ] 收口 Task Contract / Control-Plane Visibility V1 文档
-- [ ] 为 /status / task detail / runs 增加三面一致性测试
-- [ ] 为 running cancel 增加 cancelled contract API 测试
-- [ ] 完成 contract 主线远程验收
+- [x] 收口 Task Contract / Control-Plane Visibility V1 文档
+- [x] 为 /status / task detail / runs 增加三面一致性测试
+- [x] 为 running cancel 增加 cancelled contract API 测试
+- [x] 完成 contract 主线远程验收
 - [ ] 设计持续抓取代理的工具（优先基于开源项目改造）
 - [ ] 设计代理抓取后的清洗、去重、候选入池流程
 - [ ] 设计代理池自生长机制

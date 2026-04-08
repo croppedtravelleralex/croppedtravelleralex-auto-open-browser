@@ -2,31 +2,27 @@
 
 ## 当前任务
 
-当前任务已经从真实 browser 执行主线升级阶段进一步收口到 Task Contract / Control-Plane Visibility V1。当前代码层面已经完成 ExecutionIdentity V1 输出接线与 running cancel -> cancelled 正式终态化；接下来这轮不再扩新功能，而是把这些成果升级成 文档契约 + 接口一致性测试 + 远程验收依据。
+Task Contract / Control-Plane Visibility V1 已完成。本轮当前任务已经切换为：在不重新扩散 contract 范围的前提下，继续推进真实 Lightpanda 执行稳定化、失败分类、explainability 质量和 verify/trust 执行闭环。
 
 ---
 
 ## 任务目标
 
-围绕 lightpanda-automation，当前阶段先完成以下四件事：
+围绕 lightpanda-automation，当前阶段先完成以下三件事：
 
-1. 统一对外 contract 文档
-   - 把 execution_identity 正式写成统一执行身份视图
-   - 把 cancelled 写成正式终态而不是临时状态
-   - 明确 /status、/tasks/:id、/tasks/:id/runs 的职责边界
+1. 继续补真实浏览器任务流样本
+   - 增加 beyond-stub 的真实执行验证
+   - 继续补 timeout / cancel / execution failure 的边界样本
+   - 让真实引擎行为不只停留在 contract 层闭环
 
-2. 补最小 API 一致性测试
-   - 验证同一任务在 /status、detail、runs 中的 execution_identity 口径一致
-   - 验证 failure_scope、browser_failure_signal、summary_artifacts 等主张不会在不同视图漂移
+2. 继续清 explainability / artifact 质量
+   - 继续统一 detail / runs / status 的细粒度表现
+   - 继续提升 summary_artifacts 与 explain 字段可读性
+   - 避免结构稳定但运营理解成本仍高
 
-3. 补 cancelled 契约验证
-   - 固化 runner_cancelled 语义
-   - 确认 task / run / status 对 cancelled 的对外口径一致
-   - 避免后续回退成 generic failure / timeout 混写
-
-4. 完成远程验收闭环
-   - 按文档走 create -> inspect -> cancel -> inspect 流程
-   - 确认文档写的字段与实际接口返回字段一致
+3. 推进 verify / trust score 执行闭环
+   - 从选前判断继续扩展到执行前 / 执行中 / 执行后
+   - 继续验证执行结果如何稳定反哺 trust score 与 proxy 质量判断
 
 ---
 
@@ -43,29 +39,27 @@
 - [x] status / explain / result 基础控制面
 - [x] ExecutionIdentity V1 接口统一输出
 - [x] running cancel -> cancelled 正式终态化
-- [ ] contract 文档同步到当前事实
-- [ ] /status + detail + runs 一致性测试
-- [ ] cancelled 契约测试
-- [ ] 远程 contract 验收
+- [x] contract 文档同步到当前事实
+- [x] /status + detail + runs 一致性测试
+- [x] cancelled 契约测试
+- [x] 远程 contract 验收
+- [ ] 继续补真实浏览器任务流样本与失败分类
+- [ ] 继续清 explainability summary / artifact 文案质量
+- [ ] 推进 verify / trust score 执行闭环深化
 
 ---
 
 ## 下一步优先级
 
 ### P0
-1. 更新 contract 文档，统一 execution_identity / cancelled / status-detail-runs 口径
-2. 补 integration_api 最小验证，钉住三面一致性与 cancelled 契约
-3. 必要时最小修 handler/explainability，只修字段漂移，不扩新能力
-4. 跑远程测试与 curl 验收，确认文档、接口、测试三者一致
+1. 补更多真实 Lightpanda 任务流样本，优先围绕超时、取消、真实执行失败边界
+2. 检查并收口 detail / runs / status 在 explainability 细节上的剩余漂移
+3. 推进 verify / trust score 从选前判断扩展到执行闭环
 
 ### P1
-5. 继续补真实浏览器任务流样本与失败分类
-6. 继续补 selection / verify / runtime / result 的统一 explainability
-7. 继续把 status / explain / result 推向长期运营级控制面
-
-### P2
-8. 在 contract 收口完成后，再重回真实 Lightpanda 执行稳定化下一轮
-9. 再评估更深真实指纹消费与长期运行成本边界
+4. 继续治理高并发下的写放大、状态竞争、聚合成本
+5. 设计 artifact / log 的保留、清理与归档策略
+6. 再评估更深真实指纹消费与长期运行成本边界
 
 ---
 
@@ -73,9 +67,7 @@
 
 如果一个推进动作不能帮助回答下面任一问题，就应降低优先级：
 
-- 它是否让 execution_identity 的对外口径更稳定？
-- 它是否让 cancelled 正式终态更不容易被后续改坏？
-- 它是否让 /status、detail、runs 更像同一控制面的不同层级，而不是三个分裂视图？
-- 它是否让文档、接口、测试、远程验收指向同一事实？
-
-补充约束：当前规则仍然默认服从 contract 稳定优先、控制面一致优先、最小改动优先；本轮默认不扩新功能。
+- 它是否让真实 Lightpanda 执行链更稳定？
+- 它是否让 explainability / artifact 更容易被运营面理解？
+- 它是否让 verify / trust score 更接近执行闭环，而不是停留在选前判断？
+- 它是否在不重新扩新 contract 范围的前提下，继续推进长期主线？

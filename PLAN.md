@@ -18,47 +18,46 @@ lightpanda-automation / AutoOpenBrowser 项目统一计划书。
 
 ## 2. 当前阶段
 
-当前阶段不是继续扩新执行能力，而是：
+Task Contract / Control-Plane Visibility V1 已完成。
 
-> 把已经完成的 ExecutionIdentity V1 + cancelled API 闭环 升级成 Task Contract / Control-Plane Visibility V1。
+当前阶段已从 contract 收口切换为：
+
+> 回到真实 Lightpanda 执行稳定化 + explainability 质量深化 + verify/trust 执行闭环推进。
 
 这意味着当前阶段首先要做到：
-- 文档口径一致
-- status / detail / runs 口径一致
-- cancelled 终态口径一致
-- 测试能直接钉住这些事实
+- 继续补真实任务流样本
+- 继续清 explainability / artifact 质量
+- 继续推进 verify / trust score 执行闭环
+- 不重新扩散已完成的 contract 范围
 
 ---
 
 ## 3. 当前优先级
 
 ### P0：主线推进
-1. 更新 docs/lightpanda-api-task-structure.md、docs/api-ops.md、docs/control-plane-and-visibility-mainline.md，明确当前稳定 contract
-2. 同步 STATUS.md / TODO.md / CURRENT_TASK.md / progress.md / PLAN.md 到 contract 收口阶段
-3. 在 tests/integration_api.rs 增加三面一致性测试，验证 /status、detail、runs 对同一执行的 identity / explain / failure 口径一致
-4. 在 tests/integration_api.rs 增加 cancelled 契约测试，固定 runner_cancelled 的正式终态表达
-5. 如测试暴露轻微字段漂移，仅最小修补 src/api/handlers.rs / src/api/explainability.rs
-6. 完成远程测试与 curl 验收
+1. 补更多真实浏览器任务流样本，优先围绕 timeout / cancel / execution failure 边界
+2. 继续清理 detail / runs / status 的 explainability / artifact 细节表现
+3. 推进 verify / trust score 从选前判断扩展到执行前 / 执行中 / 执行后闭环
+4. 继续做远程真实链路验证，确认当前主线不是只在测试里成立
 
 ### P1：下一阶段预留
-1. 继续补更多真实任务流样本与失败分类
-2. 继续把 status / explain / result 推向更高层运营级控制面
-3. 在 contract 收口后，再回到真实 Lightpanda 执行稳定化下一轮
+1. 继续治理高并发下的写放大、状态竞争、聚合成本
+2. 设计 artifact / log 的保留、清理与归档策略
+3. 继续评估更深真实指纹消费边界与长期运行成本
 
 ### P2：中期能力铺垫
-1. 补更深真实指纹消费边界
-2. 代理池 / 代理抓取 / 清洗 / 轮换 / 自生长策略设计
-3. 磁盘使用控制、artifact/log 保留与归档策略
-4. 高并发下性能优化与写放大控制策略
+1. 代理池 / 代理抓取 / 清洗 / 轮换 / 自生长策略设计
+2. 磁盘使用控制、artifact/log 保留与归档策略
+3. 高并发下性能优化与写放大控制策略
 
 ---
 
 ## 4. 当前已知阻塞 / 风险
 
-- 文档可能仍落后于接口现实，需要先完成同步
-- tests/integration_api.rs 还缺针对统一 identity / cancelled contract 的最小钉子
-- 当前工作树已有未提交改动，实施时需严格最小改动
-- beyond-stub 的真实 Lightpanda 深层验证仍是后续阶段任务，不应在本轮重新扩面
+- beyond-stub 的真实 Lightpanda 深层验证仍不足
+- explainability / artifact 文案质量还有继续清理空间
+- verify / trust score 还未完全收成执行闭环
+- 当前工作树仍有未跟踪目录 `data/`，提交时需继续避免误入库
 
 ---
 
@@ -66,17 +65,16 @@ lightpanda-automation / AutoOpenBrowser 项目统一计划书。
 
 1. 一次只聚焦一个主任务
 2. 文档描述必须与代码能力对齐
-3. 本轮默认不扩新能力，只收口 contract
-4. 若测试暴露问题，优先最小修补现有接口装配，不新增新字段和新行为
+3. contract 已完成，本轮不再重复扩写同一主线
+4. 若出现跨视图细节漂移，优先最小修补现有装配路径，不新增平行抽象
 
 ---
 
 ## 6. 建议的接手动作顺序
 
-1. 先读 STATUS.md 与 progress.md，确认当前 contract 收口状态
-2. 再读 docs/api-ops.md / docs/lightpanda-api-task-structure.md / docs/control-plane-and-visibility-mainline.md
-3. 补 tests/integration_api.rs 的一致性与 cancelled 契约测试
-4. 再决定是否需要最小修补 handler / explainability
+1. 先跑真实 Lightpanda 任务流样本，确认当前 beyond-stub 能力边界
+2. 再读 status/detail/runs 的剩余 explainability 表现，找最值钱的细节缺口
+3. 再决定是先补失败分类样本，还是先推进 verify/trust 执行闭环
 
 ---
 
