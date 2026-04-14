@@ -1,169 +1,23 @@
-# AI.md
+## 2026-04-14 AI Maintenance Snapshot
 
-`lightpanda-automation` / `AutoOpenBrowser` 项目 AI 入口文档。
+- Stage-closeout baseline: **93%**
+- Browser mainline: `lightpanda serve + CDP`
+- Control plane: `127.0.0.1:3000`
+- Repo-owned gateway: `127.0.0.1:8787`
+- Live Lightpanda binary: `/usr/local/bin/lightpanda`
+- Verification branches: `no-token` baseline plus gated `real-upstream`
 
-目的：让人或 AI 在最短时间内理解这个项目是什么、现在到哪了、应该先看什么、如何安全接手继续推进。
+## Current Facts
 
----
+- The stable stage baseline is the repo-owned `serve + CDP` path, not any older fetch-based path.
+- `demo_public` and `prod_live` reporting are separated.
+- `stable_v1` is the current repo-owned `prod_live` preset for repeated verification.
+- Strict release gating remains intentionally harder than operational reporting.
+- Current operational reporting may resolve to `provider_capped` when the only failure is source concentration under lab-only supply.
 
-## 1. 项目是什么
+## Current Limits
 
-这是一个运行在 Ubuntu 上的高性能浏览器自动化系统原型，当前阶段重点是：
+- No private or paid provider is connected yet.
+- The dirty branch still has unresolved continuity control-plane Rust follow-up before it can reclaim a fully green test closure.
+- The next safe closure step is top-level documentation and stage-entry consistency, followed by the continuity control-plane Rust refactor.
 
-- 用 Rust 构建后端主程序
-- 用 SQLite 做任务/运行/日志持久化
-- 通过 REST API 暴露任务创建、查询、取消、重试、运行历史、日志等能力
-- 先用 fake runner 跑通闭环
-- 为后续接入 `lightpanda-io/browser` 真实执行器预留统一 runner 抽象
-
-一句话：
-
-> 这是一个从“可运行任务原型”向“真实浏览器自动化系统”演进的工程，不是单次脚本。
-
----
-
-## 2. 当前阶段
-
-当前已处于：
-
-> 真实 browser 执行主线升级阶段。
-
-当前已知现状：
-
-- 最小任务闭环、SQLite 持久化、DB-first queue、runs / logs / status 基础控制面已稳定存在
-- fake runner 已不再代表项目主线，当前主线是 Lightpanda 真实执行链稳定化
-- 已有 fingerprint profile、proxy pool、sticky session、verify / trust score、selection explainability 等支撑层能力
-- 当前代码正在补齐 running cancel、结果回写一致性、失败分类与执行闭环质量语义
-- API 服务当前已在 Ubuntu 上运行，可通过 127.0.0.1:3000 正常返回 /health 与 /status
-
-接手时不要再把项目理解成“最小原型准备接真实执行器”，而要理解成“真实执行主线已经开始，当前在做稳定化、身份统一与运营控制面升级”。
-
----
-
-## 2.1 当前阶段快照（Current Stage Snapshot）
-
-- **Development rule:** `docs/fingerprint-first-development-rules.md`（绝对指纹优先；headless Ubuntu 优先；磁盘扩容不改变主线排序；性能优化不能退化成伪串行；screenshot / GUI / 重视觉能力当前降级）
-
-- **Stage status:** stable / closed enough to freeze
-- **Completed in current stage:** providerScope lazy refresh validated; provider risk version / seen v1 landed; selection intentionally unchanged; explain-side version visibility landed and validated; providerRegion deferred for this stage
-- **Frozen in current stage:** providerRegion implementation; selection ranking redesign around version semantics; broad trust-score semantics rewrite; broad explainability rewrite
-- **Reopen rule:** deferred lines reopen only when their documented reopen conditions are explicitly met
-- **Fast answer:** refresh-scope work is closed for this stage; current state is stable; deferred lines remain frozen unless reopen conditions are met
-- **Entry maintenance:** `python3 scripts/check_stage_entry_consistency.py`
-- **Entry maintenance flow:** `bash scripts/stage_entry_maintenance_flow.sh`
-
-## 3. 项目根目录关键文件
-
-### 标准入口文档
-- `AI.md`：本文件，项目接手入口
-- `PLAN.md`：统一计划书，收口当前计划、优先级、阻塞与下一步
-- `FEATURES.md`：最终目标功能清单
-
-### 现有核心文档
-- `README.md`：项目摘要与传统入口说明
-- `STATUS.md`：当前状态、风险、下一步
-- `PROGRESS.md`：已经落地的功能进展
-- `TODO.md`：任务清单
-- `ROADMAP.md`：滚动路线图
-- `VISION.md`：项目最终效果与核心能力定义
-- `LONG_TERM_ROADMAP.md`：中长期能力演进方向
-- `GOLDEN_FEATURES.md`：高价值增强能力清单
-- `LIGHTPANDA_V1_PLAN.md`：`LightpandaRunner` 第一版真实接入边界定义
-- `RUNNING_CANCEL_PLAN.md`：`running cancel` 的设计预留与演进边界
-- `CURRENT_TASK.md`：当前任务定义
-- `CURRENT_DIRECTION.md`：当前阶段方向约束
-
-### 运行/自动推进相关
-- `EXECUTION_LOG.md`
-- `RUN_STATE.json`
-- `AUTONOMY_PLAN.md`
-- `EXECUTION_PROTOCOL.md`
-- `EXECUTION_STATE_MACHINE.md`
-- `EXECUTION_CHECKLIST.md`
-- `ROUND_SCHEDULER.md`
-- `round-results/`
-- `summaries/`
-
----
-
-## 4. 目录结构速览
-
-```text
-src/
-  main.rs
-  lib.rs
-  runner/
-  ...
-
-scripts/
-  run_round.py
-  scheduler_daemon.py
-
-round-results/
-summaries/
-```
-
-重点：
-- `src/` 是主代码区
-- `src/runner/` 是当前最关键演进点之一
-- 各类 `EXECUTION_*`、`RUN_STATE.json`、`round-results/` 属于自动推进体系
-
----
-
-## 5. 接手顺序（默认）
-
-以后任何人或 AI 接手本项目，默认按这个顺序：
-
-1. 先看 `AI.md`
-2. 再看 `PLAN.md`
-3. 再看 `FEATURES.md`
-4. 再看 `STATUS.md` / `PROGRESS.md`
-5. 最后进入 `src/` 看代码与当前改动
-
-不要一上来就在大量历史文档里乱翻，否则很容易被旧阶段信息带偏。
-
----
-
-## 6. 接手时必须确认的事
-
-- 当前工作树是否有未提交改动
-- 文档描述是否仍与代码能力一致
-- 当前“主任务”是否只有一个
-- 当前是否处于 fake runner 增强阶段，还是 lightpanda runner 接入阶段
-- 是否需要同步更新 `AI.md` / `PLAN.md` / `FEATURES.md`
-
----
-
-## 7. 文档映射关系
-
-本项目在补充标准文档前，原有文档职责大致如下：
-
-- `README.md` ≈ 旧版入口说明
-- `TODO.md` + `ROADMAP.md` + `CURRENT_TASK.md` ≈ 旧版计划系统
-- `VISION.md` + `ROADMAP.md` + `GOLDEN_FEATURES.md` ≈ 旧版最终功能定义
-
-因此新增 `AI.md` / `PLAN.md` / `FEATURES.md` 时，原则是：
-
-> 做统一收口，不推翻已有有效文档。
-
----
-
-## 8. 接手原则
-
-- 先校准文档，再推进代码
-- 先确认当前真实状态，再决定下一步
-- 不把历史规划误当成已实现能力
-- 不把单轮临时任务误当成长期方向
-- 每次代码改动后同步检查标准文档是否需要更新
-
-
-
-## 9. 运行配置补充
-
-当前 `LightpandaRunner` V1 通过本地二进制执行：
-
-- 环境变量：`LIGHTPANDA_BIN`
-- 默认值：`lightpanda`
-- 当前最小动作：`lightpanda fetch <url>`
-
-如果宿主机未安装 `lightpanda` 或二进制不在 PATH 中，需要显式配置 `LIGHTPANDA_BIN`。
